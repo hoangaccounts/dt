@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# VERSION: 0.0.1
+# SUMMARY: Print and optionally install a safe, curated set of git aliases.
+# TAGS: git, env
+# SYNOPSIS: dt git-aliases [list|install|uninstall|status] [--yes] [--no-status]
+# DESCRIPTION: Manage git aliases via a dedicated include file referenced from your
+#   global git config. This keeps ~/.gitconfig clean and makes uninstall predictable.
+# OPTIONS: --yes
+#   Skip the confirmation prompt for install/uninstall.
+#   --no-status
+#   Do not run the post-action status check. Useful when a user's existing
+#   gitconfig has a broken include recursion that can cause `git config` calls
+#   to hang.
+# EXAMPLES: dt git-aliases list
+#   dt git-aliases install
+#   dt git-aliases status
+#   dt git-aliases uninstall
+# OUTPUT: Writes ~/.config/dt/git-aliases.gitconfig when installing.
+# SAFETY: confirm
+# DEPS: git
+# CREDITS: None
+# MISC: This tool intentionally avoids destructive aliases by default.
+### END HELP
+set -euo pipefail
+
+CONFIRM=1
+# Post-action status checks call `git config`, which can hang if a user's
+# existing git configuration has a broken include recursion. To keep installs
+# snappy and robust by default, we do NOT run status automatically.
+RUN_STATUS=0
+
+CONFIG_DIR="${HOME}/.config/dt"
+INCLUDE_FILE="${CONFIG_DIR}/git-aliases.gitconfig"
+
+print_usage() {
+  echo "Run: dt help git-aliases"
+}
+
+confirm() {
+  local prompt="${1}"
+  if [[ "${CONFIRM}" -eq 0 ]]; then
+    return 0
+  fi
+  read -r -p "${prompt} [y/N] " reply
+  case "${reply}" in
+    y|Y|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+escape_regex() {
+  # Escape a string so it can be used as an anchored regex in git config --unset-all.
+  # We escape: \\ . ^ $ * + ? ( ) [ ] { } | /
+  local s="${1}"
+  s="${s//\\/\\\\}"
+  s="${s//./\\.}"
+  s="${s//^/\\^}"
+  s="${s//\$/\\$}"
+  s="${s//\*/\\*}"
+  s="${s//+/\\+}"
+  s="${s//\?/\\?}"
+  s="${s//\(/\\(}"
+  s="${s//\)/\\)}"
+  s="${s//[/\\[}"
+  s="${s//]/\\]}"
+  s="${s//\{/\\{}"
+  s="${s//\}/\\}}"
+  s="${s//|/\\|}"
+  s="${s//\//\\/}"
+  echo "${s}"
+}
+
+
+
+
+render_aliases_gitconfig() {
+  cat <<'EOF'
+# Managed by dt git-aliases.
+# You can edit this file, but changes may be overwritten by re-installing.
+
+[alias]
+  st = status -sb
+  br = branch -vv
+  co = checkout
+  sw = switch
+  ci = commit
+  cm = commit -m
+  amend = commit --amend --no-edit
+  unstage = restore --staged
+  last = log -1 --stat
+  lg = log --graph --decorate --oneline --all
+
+  # Maintenance (safe; does not delete local branches)
+  prune-gone = !git fetch --prune
+EOF
+}
+
+cmd_list() {
+  render_aliases_gitconfig
+}
+
+cmd_status() {
+  if [[ -f "${INCLUDE_FILE}" ]]; then
+    echo "Include file exists: ${INCLUDE_FILE}"
+  else
+    echo "Include file missing: ${INCLUDE_FILE}"
+  fi
+
+  local includes
+  includes="$(git config --global --get-all include.path || true)"
+  if grep -Fxq "${INCLUDE_FILE}" <<<"${includes}"; then
+    echo "Global gitconfig includes: ${INCLUDE_FILE}"
+  else
+    echo "Global gitconfig does not include: ${INCLUDE_FILE}"
+  fi
+}
+
+ensure_include_present() {
+  local includes
+  includes="$(git config --global --get-all include.path || true)"
+  if grep -Fxq "${INCLUDE_FILE}" <<<"${includes}"; then
+    return 0
+  fi
+  git config --global --add include.path "${INCLUDE_FILE}"
+}
+
+ensure_include_absent() {
+  local includes
+  includes="$(git config --global --get-all include.path || true)"
+  if ! grep -Fxq "${INCLUDE_FILE}" <<<"${includes}"; then
+    return 0
+  fi
+
+  local escaped
+  escaped="$(escape_regex "${INCLUDE_FILE}")"
+  git config --global --unset-all include.path "^${escaped}$"
+}
+
+cmd_install() {
+  if ! confirm "Install git aliases include at ${INCLUDE_FILE} and update ~/.gitconfig?"; then
+    echo "Canceled."
+    exit 1
+  fi
+
+  mkdir -p "${CONFIG_DIR}"
+  render_aliases_gitconfig > "${INCLUDE_FILE}"
+  ensure_include_present
+
+  echo "Installed git aliases."
+  if [[ "${RUN_STATUS}" -eq 1 ]]; then
+    cmd_status
+  fi
+}
+
+cmd_uninstall() {
+  if ! confirm "Uninstall git aliases (remove include and delete ${INCLUDE_FILE})?"; then
+    echo "Canceled."
+    exit 1
+  fi
+
+  ensure_include_absent
+  if [[ -f "${INCLUDE_FILE}" ]]; then
+    rm "${INCLUDE_FILE}"
+  fi
+
+  echo "Uninstalled git aliases."
+  if [[ "${RUN_STATUS}" -eq 1 ]]; then
+    cmd_status
+  fi
+}
+
+main() {
+  local subcmd="list"
+  while [[ "${#}" -gt 0 ]]; do
+    case "${1}" in
+      list|install|uninstall|status)
+        subcmd="${1}"
+        shift
+        ;;
+      --yes)
+        CONFIRM=0
+        shift
+        ;;
+      --no-status)
+        RUN_STATUS=0
+        shift
+        ;;
+      --status)
+        RUN_STATUS=1
+        shift
+        ;;
+      -h|--help|help)
+        print_usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown argument: ${1}" >&2
+        print_usage >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  case "${subcmd}" in
+    list) cmd_list ;;
+    status) cmd_status ;;
+    install) cmd_install ;;
+    uninstall) cmd_uninstall ;;
+    *) print_usage; exit 2 ;;
+  esac
+}
+
+main "$@"

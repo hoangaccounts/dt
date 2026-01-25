@@ -1,0 +1,683 @@
+#!/usr/bin/env bash
+# dt — tiny devtools launcher
+#
+# Contract (v0.0.1)
+# - Discovers tools by scanning ./tools for executables that contain a valid help header.
+# - A valid header starts at line 1 and ends at the marker: '### END HELP'.
+# - Required header keys: VERSION, SUMMARY, TAGS, SYNOPSIS, SAFETY
+#
+# Commands:
+#   dt               Show dt help.
+#   dt help [tool]   Show dt help or tool help.
+#   dt list          List all valid tools.
+#   dt tags          List approved tags and counts.
+#   dt list -t <tag> List tools that have <tag>.
+#   dt <tool>        Show help for <tool>.
+#   dt <tool> ...    Run <tool> with args passed through.
+#   dt install       Symlink this dt into ~/.local/bin/dt (no tool symlinks).
+#   dt uninstall     Remove ~/.local/bin/dt if it is a symlink (prompts).
+#   dt test          Run Bats tests (requires bats in PATH).
+set -euo pipefail
+
+DT_VERSION="0.0.1"
+
+# Resolve the *real* path of this script even when invoked via a symlink.
+#
+# Why:
+# - `dt install` places a symlink at ~/.local/bin/dt.
+# - If we compute paths from $0 / BASH_SOURCE[0] directly, we may incorrectly
+#   treat ~/.local/bin as the repo root, breaking commands like `dt test`.
+#
+# Design:
+# - Prefer python3 for a reliable realpath implementation.
+# - Fall back to a readlink loop.
+resolve_dt_self_path() {
+  # macOS ships Bash 3.2, so avoid Bash-4 features here.
+  #
+  # We need a *real* path to this script because `dt install` uses a symlink at
+  # ~/.local/bin/dt. When invoked via that symlink, $0 / BASH_SOURCE[0] often
+  # reflect the symlink path. For repo-relative operations (tools/, test/, docs),
+  # we must follow the symlink to the real file.
+  local invoked="${BASH_SOURCE[0]}"
+
+  # If invoked is not a path (e.g., just "dt"), resolve via PATH.
+  if [[ "${invoked}" != *"/"* ]]; then
+    local resolved_from_path
+    resolved_from_path="$(command -v "${invoked}" 2>/dev/null || true)"
+    if [[ -n "${resolved_from_path}" ]]; then
+      invoked="${resolved_from_path}"
+    fi
+  fi
+
+  # Follow symlinks manually (portable; no readlink -f on macOS).
+  while [[ -L "${invoked}" ]]; do
+    local link
+    link="$(readlink "${invoked}")"
+    if [[ "${link}" == /* ]]; then
+      invoked="${link}"
+    else
+      local link_dir
+      link_dir="$(cd -P "$(dirname "${invoked}")" && pwd -P)"
+      invoked="${link_dir}/${link}"
+    fi
+  done
+
+  # Normalize to an absolute, physical path.
+  if [[ "${invoked}" != /* ]]; then
+    invoked="$(cd -P "$(dirname "${invoked}")" && pwd -P)/$(basename "${invoked}")"
+  fi
+
+  echo "${invoked}"
+}
+
+SCRIPT_DIR="$(cd -P "$(dirname "$(resolve_dt_self_path)")" && pwd -P)"
+TOOLS_DIR="${SCRIPT_DIR}/tools"
+LOCAL_BIN="${HOME}/.local/bin"
+DT_LINK="${LOCAL_BIN}/dt"
+
+# Strict, opinionated tag vocabulary (v1).
+readonly -a APPROVED_TAGS=(
+  "share" "git" "shell" "env" "project" "net" "files"
+  "android" "ios" "web" "node" "python" "kotlin" "flutter"
+  "misc"
+)
+
+print_dt_help() {
+  cat <<'EOF'
+dt — a tiny launcher for self-documented developer tools.
+
+Usage:
+  dt
+  dt -help
+  dt help
+  dt help <tool>
+  dt list
+  dt -list
+  dt list -t <tag>
+  dt tags
+  dt -tags
+  dt <tool>
+  dt <tool> [args...]
+  dt install   (or: dt -install)
+  dt uninstall (or: dt -uninstall)
+  dt test      (or: dt -test)
+
+Notes:
+- Tools live in ./tools and are discovered automatically (no registry).
+- Each tool must be executable and start with a valid header that ends with:
+    ### END HELP
+- dt <tool> (no args) prints tool help (safe by default).
+- dt <tool> <...> runs the tool and passes args through.
+
+Examples:
+  dt list
+  dt tags
+  dt list -t git
+  dt help git-aliases
+  dt git-aliases list
+  dt git-aliases install
+  dt test
+EOF
+}
+
+normalize_cmd() {
+  # Provide a very small, user-friendly flag alias set so first-time users can
+  # type `dt -install` and move on.
+  #
+  # This is intentionally limited — we do not want dt to grow a large flags
+  # surface area.
+  local raw="$1"
+  case "${raw}" in
+    -help|--help|-h)
+      echo "help"
+      ;;
+    -version|--version)
+      echo "version"
+      ;;
+    -list|--list)
+      echo "list"
+      ;;
+    -tags|--tags)
+      echo "tags"
+      ;;
+    -install|--install)
+      echo "install"
+      ;;
+    -uninstall|--uninstall)
+      echo "uninstall"
+      ;;
+    -test|--test)
+      echo "test"
+      ;;
+    *)
+      echo "${raw}"
+      ;;
+  esac
+}
+
+is_approved_tag() {
+  local candidate="$1"
+  local t
+  for t in "${APPROVED_TAGS[@]}"; do
+    if [[ "${t}" == "${candidate}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+tool_path() {
+  local tool="$1"
+  echo "${TOOLS_DIR}/${tool}"
+}
+
+has_valid_header() {
+  local file="$1"
+
+  local header
+  header="$(awk '
+    # Tools keep a man-style header as commented lines at the top of the file.
+    # We strip a single leading "#" (and an optional following space) so the
+    # header is readable and easy to parse.
+    NR==1 && /^#!/ { next }
+    /^### END HELP$/ { print "### END HELP"; exit }
+    {
+      line=$0
+      sub(/^#[[:space:]]?/, "", line)
+      print line
+    }
+  ' "${file}" 2>/dev/null || true)"
+
+  [[ -n "${header}" ]] || return 1
+  grep -q "^VERSION:" <<<"${header}" || return 1
+  grep -q "^SUMMARY:" <<<"${header}" || return 1
+  grep -q "^TAGS:" <<<"${header}" || return 1
+  grep -q "^SYNOPSIS:" <<<"${header}" || return 1
+  grep -q "^SAFETY:" <<<"${header}" || return 1
+  grep -q "^### END HELP$" <<<"${header}" || return 1
+  return 0
+}
+
+read_header_value() {
+  local file="$1"
+  local key="$2"
+  awk -v k="${key}:" '
+    NR==1 && /^#!/ { next }
+    /^### END HELP$/ { exit }
+    {
+      line=$0
+      sub(/^#[[:space:]]?/, "", line)
+    }
+    line ~ "^" k {
+      sub("^" k "[[:space:]]*", "", line)
+      print line
+      exit
+    }
+  ' "${file}" 2>/dev/null || true
+}
+
+print_tool_help() {
+  local tool="$1"
+  local file
+  file="$(tool_path "${tool}")"
+
+  if [[ ! -f "${file}" ]]; then
+    echo "Unknown tool: ${tool}" >&2
+    exit 2
+  fi
+
+  if [[ ! -x "${file}" ]]; then
+    echo "Tool exists but is not executable: ${tool}" >&2
+    exit 2
+  fi
+
+  if ! has_valid_header "${file}"; then
+    echo "Tool is missing a valid header: ${tool}" >&2
+    echo "Required: VERSION, SUMMARY, TAGS, SYNOPSIS, SAFETY, and '### END HELP' marker." >&2
+    exit 2
+  fi
+
+  awk '
+    NR==1 && /^#!/ { next }
+    /^### END HELP$/ { print "### END HELP"; exit }
+    {
+      line=$0
+      sub(/^#[[:space:]]?/, "", line)
+      print line
+    }
+  ' "${file}"
+}
+
+list_tools() {
+  local filter_tag="${1:-}"
+  local -a invalid=()
+  local -a rows=()
+
+  if [[ ! -d "${TOOLS_DIR}" ]]; then
+    echo "Missing tools directory: ${TOOLS_DIR}" >&2
+    exit 2
+  fi
+
+  local f tool version summary tags_line
+  local -a tags_raw
+  local tag ok
+
+  for f in "${TOOLS_DIR}"/*; do
+    [[ -e "${f}" ]] || continue
+    [[ -f "${f}" ]] || continue
+    [[ -x "${f}" ]] || continue
+
+    tool="$(basename "${f}")"
+
+    if ! has_valid_header "${f}"; then
+      invalid+=("${tool}")
+      continue
+    fi
+
+    version="$(read_header_value "${f}" "VERSION")"
+    summary="$(read_header_value "${f}" "SUMMARY")"
+    tags_line="$(read_header_value "${f}" "TAGS")"
+
+    IFS=',' read -r -a tags_raw <<<"${tags_line}"
+    ok=1
+    for tag in "${tags_raw[@]}"; do
+      tag="${tag#"${tag%%[![:space:]]*}"}"
+      tag="${tag%"${tag##*[![:space:]]}"}"
+      [[ -n "${tag}" ]] || continue
+      if ! is_approved_tag "${tag}"; then
+        ok=0
+        break
+      fi
+    done
+
+    if [[ "${ok}" -eq 0 ]]; then
+      invalid+=("${tool}")
+      continue
+    fi
+
+    if [[ -n "${filter_tag}" ]]; then
+      local has_tag=0
+      for tag in "${tags_raw[@]}"; do
+        tag="${tag#"${tag%%[![:space:]]*}"}"
+        tag="${tag%"${tag##*[![:space:]]}"}"
+        if [[ "${tag}" == "${filter_tag}" ]]; then
+          has_tag=1
+          break
+        fi
+      done
+      [[ "${has_tag}" -eq 1 ]] || continue
+    fi
+
+    rows+=("${tool} (v${version}) — ${summary}")
+  done
+
+  if [[ "${#rows[@]}" -gt 0 ]]; then
+    printf "%s\n" "${rows[@]}" | sort
+  else
+    if [[ -n "${filter_tag}" ]]; then
+      echo "No tools tagged '${filter_tag}'."
+    else
+      echo "No valid tools found."
+    fi
+  fi
+
+  if [[ "${#invalid[@]}" -gt 0 ]]; then
+    echo
+    echo "Invalid tools (missing header / invalid tags / not executable):"
+    printf "  - %s\n" "${invalid[@]}" | sort
+  fi
+}
+
+list_tags() {
+  # Bash 3.2 (macOS default) does not support associative arrays.
+  # Keep this compatible by using parallel indexed arrays.
+  local -a counts=()
+  local i
+  for i in "${!APPROVED_TAGS[@]}"; do
+    counts[$i]=0
+  done
+
+  local f tags_line
+  local -a tags_raw
+  local tag trimmed
+
+  for f in "${TOOLS_DIR}"/*; do
+    [[ -e "${f}" ]] || continue
+    [[ -f "${f}" ]] || continue
+    [[ -x "${f}" ]] || continue
+    has_valid_header "${f}" || continue
+
+    tags_line="$(read_header_value "${f}" "TAGS")"
+    IFS=',' read -r -a tags_raw <<<"${tags_line}"
+
+    for tag in "${tags_raw[@]}"; do
+      trimmed="${tag#"${tag%%[![:space:]]*}"}"
+      trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+      [[ -n "${trimmed}" ]] || continue
+
+      # Find the tag index in APPROVED_TAGS.
+      for i in "${!APPROVED_TAGS[@]}"; do
+        if [[ "${APPROVED_TAGS[$i]}" == "${trimmed}" ]]; then
+          counts[$i]=$((counts[$i] + 1))
+          break
+        fi
+      done
+    done
+  done
+
+  for i in "${!APPROVED_TAGS[@]}"; do
+    printf "%-10s %d
+" "${APPROVED_TAGS[$i]}" "${counts[$i]}"
+  done
+}
+
+ensure_local_bin_on_path() {
+  # If ~/.local/bin is already on PATH, nothing to do.
+  if [[ ":${PATH}:" == *":${LOCAL_BIN}:"* ]]; then
+    return 0
+  fi
+
+  echo
+  echo "Note: '${LOCAL_BIN}' is not currently on PATH."
+
+  # If we're not in an interactive TTY, we cannot prompt. Just print instructions.
+  if [[ ! -t 0 ]]; then
+    echo "Add this to your shell profile (e.g., ~/.zshrc or ~/.bashrc):"
+    echo "  export PATH=\"${LOCAL_BIN}:\$PATH\""
+    return 0
+  fi
+
+  echo "Would you like me to add it to your shell profile now? [y/N]"
+  read -r reply || true
+  if [[ ! "${reply}" =~ ^[Yy]$ ]]; then
+    echo "Ok — not modifying your shell profile."
+    echo "Add this line to your shell profile (e.g., ~/.zshrc or ~/.bashrc):"
+    echo "  export PATH=\"${LOCAL_BIN}:\$PATH\""
+    return 0
+  fi
+
+  local shell_name profile
+  shell_name="$(basename "${SHELL:-}")"
+  profile=""
+
+  case "${shell_name}" in
+    zsh)
+      profile="${HOME}/.zshrc"
+      ;;
+    bash)
+      if [[ -f "${HOME}/.bashrc" ]]; then
+        profile="${HOME}/.bashrc"
+      else
+        profile="${HOME}/.bash_profile"
+      fi
+      ;;
+    *)
+      profile=""
+      ;;
+  esac
+
+  if [[ -z "${profile}" ]]; then
+    echo "I couldn't detect a supported shell profile for SHELL='${SHELL:-}'."
+    echo "Please add this line manually:"
+    echo "  export PATH=\"${LOCAL_BIN}:\$PATH\""
+    return 0
+  fi
+
+  # Idempotent: avoid duplicating the block if it already exists.
+  if grep -q "dt-devtools: add ~/.local/bin to PATH" "${profile}" 2>/dev/null; then
+    echo "Looks like PATH setup already exists in ${profile}."
+    echo "Restart your terminal (or 'source ${profile}') to apply."
+    return 0
+  fi
+
+  {
+    echo
+    echo "# dt-devtools: add ~/.local/bin to PATH (added by 'dt install')"
+    echo "export PATH=\"${HOME}/.local/bin:\$PATH\""
+  } >> "${profile}"
+
+  echo "Updated: ${profile}"
+  echo "Restart your terminal (or run: source ${profile}) to apply."
+}
+
+
+fix_repo_permissions() {
+  # Zip extraction on macOS can strip executable bits. Make install resilient by
+  # restoring +x on dt, bootstrap, and tools/* when possible.
+  chmod +x "${SCRIPT_DIR}/dt" 2>/dev/null || true
+  chmod +x "${SCRIPT_DIR}/bootstrap" 2>/dev/null || true
+  if [[ -d "${TOOLS_DIR}" ]]; then
+    chmod +x "${TOOLS_DIR}/"* 2>/dev/null || true
+  fi
+}
+
+install_dt() {
+  # Install should be ergonomic for first-time users:
+  # 1) Ensure ~/.local/bin is on PATH (offer to add to shell profile).
+  # 2) Create/replace the ~/.local/bin/dt symlink.
+  #
+  # IMPORTANT: We do PATH setup first so the user gets the prompt even when a
+  # symlink already exists.
+
+  local force=0
+  if [[ "${#}" -ge 1 ]]; then
+    case "${1}" in
+      --force|-f)
+        force=1
+        shift || true
+        ;;
+    esac
+  fi
+
+  mkdir -p "${LOCAL_BIN}"
+  ensure_local_bin_on_path
+  fix_repo_permissions
+
+  local target="${SCRIPT_DIR}/dt"
+  [[ -f "${target}" ]] || target="${BASH_SOURCE[0]}"
+
+  if [[ -L "${DT_LINK}" ]]; then
+    local existing
+    existing="$(readlink "${DT_LINK}")"
+
+    if [[ "${existing}" == "${target}" ]]; then
+      echo "dt is already installed at ${DT_LINK}"
+      return 0
+    fi
+
+    if [[ "${force}" -eq 0 ]]; then
+      if [[ ! -t 0 ]]; then
+        echo "Refusing to overwrite existing symlink at ${DT_LINK} -> ${existing}" >&2
+        echo "Re-run with: ./dt install --force" >&2
+        exit 2
+      fi
+
+      echo "An existing dt symlink was found:" 
+      echo "  ${DT_LINK} -> ${existing}"
+      echo "Replace it to point to this repo?" 
+      echo "  ${DT_LINK} -> ${target}"
+      echo "Proceed? [y/N]"
+      local reply
+      read -r reply || true
+      if [[ ! "${reply}" =~ ^[Yy]$ ]]; then
+        echo "Ok — not changing the existing symlink."
+        echo "Tip: You can remove it manually: rm ${DT_LINK}"
+        exit 2
+      fi
+    fi
+
+    rm "${DT_LINK}"
+  elif [[ -e "${DT_LINK}" ]]; then
+    # Not a symlink (could be a real file). We won't overwrite this by default.
+    echo "Refusing to overwrite existing file at ${DT_LINK}" >&2
+    echo "Remove it manually, then re-run: ./dt install" >&2
+    exit 2
+  fi
+
+  ln -s "${target}" "${DT_LINK}"
+  echo "Installed: ${DT_LINK} -> ${target}"
+}
+
+uninstall_dt() {
+  # Uninstall is intentionally conservative: only remove what is clearly a dt
+  # symlink, and never delete non-symlink files.
+  local force=0
+  if [[ "${#}" -ge 1 ]]; then
+    case "${1}" in
+      --force|-f|--yes)
+        force=1
+        shift || true
+        ;;
+    esac
+  fi
+
+  if [[ -L "${DT_LINK}" ]]; then
+    local existing
+    existing="$(readlink "${DT_LINK}")"
+
+    if [[ "${force}" -eq 0 && -t 0 ]]; then
+      echo "Found dt symlink:" 
+      echo "  ${DT_LINK} -> ${existing}"
+      echo "Remove it? [y/N]"
+      local reply
+      read -r reply || true
+      if [[ ! "${reply}" =~ ^[Yy]$ ]]; then
+        echo "Ok — not removing the symlink."
+        exit 2
+      fi
+    elif [[ "${force}" -eq 0 && ! -t 0 ]]; then
+      echo "Refusing to remove ${DT_LINK} in non-interactive mode." >&2
+      echo "Re-run with: dt uninstall --force" >&2
+      exit 2
+    fi
+
+    rm "${DT_LINK}"
+    echo "Removed: ${DT_LINK}"
+    return 0
+  fi
+
+  if [[ -e "${DT_LINK}" ]]; then
+    echo "Refusing to remove ${DT_LINK} (not a symlink)" >&2
+    exit 2
+  fi
+
+  echo "dt is not installed at ${DT_LINK}"
+}
+
+run_tests() {
+  local test_dir="${SCRIPT_DIR}/test"
+  if [[ ! -d "${test_dir}" ]]; then
+    echo "Missing test directory: ${test_dir}" >&2
+    exit 2
+  fi
+
+  if ! command -v bats >/dev/null 2>&1; then
+    echo "bats is required to run tests." >&2
+
+    # Keep the default behavior safe and deterministic: never auto-install dependencies
+    # unless the user explicitly opts in via an interactive prompt.
+    if command -v brew >/dev/null 2>&1 && [[ -t 0 ]]; then
+      echo "Homebrew detected." >&2
+      echo "Install bats-core now? This will run: brew install bats-core" >&2
+      printf "Install bats-core? [y/N] " >&2
+      local reply=""
+      IFS= read -r reply || true
+      if [[ "${reply}" =~ ^[Yy]$ ]]; then
+        if ! brew install bats-core; then
+          echo "Failed to install bats-core via Homebrew." >&2
+          exit 2
+        fi
+      fi
+    fi
+
+    if ! command -v bats >/dev/null 2>&1; then
+      echo "Install bats-core (https://github.com/bats-core/bats-core) and re-run:" >&2
+      if command -v brew >/dev/null 2>&1; then
+        echo "  brew install bats-core" >&2
+      fi
+      echo "  dt test" >&2
+      exit 2
+    fi
+  fi
+
+  bats "${test_dir}"
+}
+
+main() {
+  if [[ "${#}" -eq 0 ]]; then
+    print_dt_help
+    exit 0
+  fi
+
+  local cmd="${1}"
+  cmd="$(normalize_cmd "${cmd}")"
+  shift || true
+
+  case "${cmd}" in
+    help|-h|--help)
+      if [[ "${#}" -eq 0 ]]; then
+        print_dt_help
+      else
+        print_tool_help "${1}"
+      fi
+      ;;
+    version|--version)
+      echo "dt v${DT_VERSION}"
+      ;;
+    list)
+      if [[ "${#}" -ge 2 && "${1}" == "-t" ]]; then
+        local tag="${2}"
+        if ! is_approved_tag "${tag}"; then
+          echo "Unknown tag: ${tag}" >&2
+          echo "Run: dt tags" >&2
+          exit 2
+        fi
+        list_tools "${tag}"
+      else
+        list_tools
+      fi
+      ;;
+    tags)
+      list_tags
+      ;;
+    install)
+      # Bash 3.2 + `set -u` can treat an empty "$@" expansion as an
+      # unbound special parameter. Avoid expanding when there are no args.
+      if [[ "$#" -gt 0 ]]; then
+        install_dt "$@"
+      else
+        install_dt
+      fi
+      ;;
+    uninstall)
+      # Same compatibility guard as install.
+      if [[ "$#" -gt 0 ]]; then
+        uninstall_dt "$@"
+      else
+        uninstall_dt
+      fi
+      ;;
+    test)
+      run_tests
+      ;;
+    *)
+      local tool="${cmd}"
+      local file
+      file="$(tool_path "${tool}")"
+      if [[ ! -f "${file}" ]]; then
+        echo "Unknown command or tool: ${tool}" >&2
+        echo "Run: dt help" >&2
+        exit 2
+      fi
+
+      if [[ "${#}" -eq 0 ]]; then
+        print_tool_help "${tool}"
+        exit 0
+      fi
+
+      exec "${file}" "${@}"
+      ;;
+  esac
+}
+
+main "$@"

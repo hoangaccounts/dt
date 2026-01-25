@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# bootstrap — repo safety helper
+#
+# Purpose
+# - Restore executable bits when a zip extraction stripped them.
+# - Provide a fallback install/uninstall flow that does not rely on an already
+#   working global `dt` on PATH.
+#
+# Usage
+#   bash ./bootstrap
+#   bash ./bootstrap perms
+#   bash ./bootstrap install [--force]
+#   bash ./bootstrap uninstall [--force]
+#
+# Notes
+# - This script is intentionally conservative: it only removes ~/.local/bin/dt
+#   when that path is a symlink.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_BIN="${HOME}/.local/bin"
+DT_LINK="${LOCAL_BIN}/dt"
+
+print_help() {
+  cat <<EOF
+bootstrap — repo safety helper
+
+Commands:
+  perms                 Restore executable bits for ./dt and ./tools/*
+  install [--force]     Run ./dt install (after restoring perms)
+  uninstall [--force]   Remove ~/.local/bin/dt if it is a symlink
+
+Examples:
+  bash ./bootstrap perms
+  bash ./bootstrap uninstall --force
+  bash ./bootstrap install
+EOF
+}
+
+fix_perms() {
+  chmod +x "${REPO_DIR}/dt" 2>/dev/null || true
+  if [[ -d "${REPO_DIR}/tools" ]]; then
+    chmod +x "${REPO_DIR}/tools"/* 2>/dev/null || true
+  fi
+}
+
+uninstall_symlink() {
+  local force=0
+  if [[ "${#}" -ge 1 ]]; then
+    case "${1}" in
+      --force|-f|--yes)
+        force=1
+        shift || true
+        ;;
+    esac
+  fi
+
+  if [[ -L "${DT_LINK}" ]]; then
+    local existing
+    existing="$(readlink "${DT_LINK}")"
+
+    if [[ "${force}" -eq 0 && -t 0 ]]; then
+      echo "Found dt symlink:"
+      echo "  ${DT_LINK} -> ${existing}"
+      echo "Remove it? [y/N]"
+      local reply
+      read -r reply || true
+      if [[ ! "${reply}" =~ ^[Yy]$ ]]; then
+        echo "Ok — not removing the symlink."
+        exit 2
+      fi
+    elif [[ "${force}" -eq 0 && ! -t 0 ]]; then
+      echo "Refusing to remove ${DT_LINK} in non-interactive mode." >&2
+      echo "Re-run with: bash ./bootstrap uninstall --force" >&2
+      exit 2
+    fi
+
+    rm "${DT_LINK}"
+    echo "Removed: ${DT_LINK}"
+    return 0
+  fi
+
+  if [[ -e "${DT_LINK}" ]]; then
+    echo "Refusing to remove ${DT_LINK} (not a symlink)." >&2
+    exit 2
+  fi
+
+  echo "dt is not installed at ${DT_LINK}"
+}
+
+main() {
+  local cmd="${1:-perms}"
+  shift || true
+
+  case "${cmd}" in
+    perms)
+      fix_perms
+      ;;
+    install)
+      fix_perms
+      "${REPO_DIR}/dt" install "${@}"
+      ;;
+    uninstall)
+      uninstall_symlink "${@}"
+      ;;
+    help|-h|--help)
+      print_help
+      ;;
+    *)
+      echo "Unknown command: ${cmd}" >&2
+      echo "Run: bash ./bootstrap help" >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "${@}"

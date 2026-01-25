@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+# VERSION: 0.0.1
+# SUMMARY: Create a share-friendly zip of a project for LLM review (ChatGPT/Claude/etc.).
+# TAGS: share, project, files
+# SYNOPSIS: dt zip-project run [path] [--output <zip>] [--mode auto|git|fs]
+# DESCRIPTION: Produce a compact project archive by excluding common build caches and
+#   generated directories. If the target is inside a git repo and git is available,
+#   zip-project will prefer git-aware file selection (tracked + untracked, excluding
+#   ignored files) for a cleaner archive.
+# OPTIONS: --output <zip>
+#   Output zip file path. Defaults to '<project-name>-share.zip' in the current directory.
+#   --mode <auto|git|fs>
+#   File selection mode. 'auto' prefers git when available; 'fs' uses filesystem scanning.
+# EXAMPLES: dt zip-project run .
+#   dt zip-project run . --output myproject.zip
+#   dt zip-project run . --mode fs
+# OUTPUT: Writes a zip file suitable for sharing.
+# SAFETY: non-destructive
+# DEPS: zip (required); git (optional, recommended)
+# CREDITS: None
+# MISC: Defaults are intentionally conservative to avoid zipping huge build caches.
+### END HELP
+set -euo pipefail
+
+print_usage() {
+  echo "Run: dt help zip-project"
+}
+
+is_command_available() {
+  command -v "${1}" >/dev/null 2>&1
+}
+
+trim() {
+  # Remove leading/trailing whitespace.
+  local s="${1}"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  echo "${s}"
+}
+
+abs_path() {
+  # Portable absolute path (no realpath on macOS by default).
+  local p="${1}"
+  if [[ "${p}" == /* ]]; then
+    echo "${p}"
+    return 0
+  fi
+  echo "$(cd -P "$(dirname "${p}")" && pwd -P)/$(basename "${p}")"
+}
+
+detect_git_root() {
+  local candidate_root="${1}"
+  if ! is_command_available git; then
+    return 1
+  fi
+  (cd "${candidate_root}" && git rev-parse --show-toplevel 2>/dev/null) || return 1
+}
+
+relative_to_root() {
+  # Compute a path relative to a root.
+  # Inputs must be absolute, normalized paths.
+  local root="${1}"
+  local child="${2}"
+  if [[ "${child}" == "${root}" ]]; then
+    echo ""
+    return 0
+  fi
+  local prefix="${root%/}/"
+  if [[ "${child}" == "${prefix}"* ]]; then
+    echo "${child#"${prefix}"}"
+    return 0
+  fi
+  return 1
+}
+
+build_git_file_list() {
+  local selection_root="${1}"
+  local temp_list_file="${2}"
+
+  local git_root
+  git_root="$(detect_git_root "${selection_root}")"
+
+  local selection_rel
+  selection_rel="$(relative_to_root "${git_root}" "${selection_root}" || true)"
+
+  # We want files under selection_root only.
+  # Use git-aware selection: tracked + untracked, excluding ignored.
+  local files
+  files="$(cd "${git_root}" && git ls-files -co --exclude-standard)"
+
+  if [[ -n "${selection_rel}" ]]; then
+    # Filter to only those within the selection root.
+    files="$(printf "%s\n" "${files}" | awk -v p="${selection_rel}" '
+      index($0, p "/") == 1 { print }
+    ')"
+  fi
+
+  # Even in git mode, filter out the common heavyweight caches. This keeps the
+  # archive usable even when the repo's .gitignore is incomplete.
+  files="$(printf "%s\n" "${files}" | awk '
+    # Drop typical build/caches.
+    /(^|\/)(\.git|\.gradle|\.kotlin|\.dart_tool|node_modules|Pods|DerivedData|\.idea|build|dist|target|coverage|\.pytest_cache|\.cache|\.venv)(\/|$)/ { next }
+    /(^|\/)\.DS_Store$/ { next }
+    { print }
+  ')"
+
+  # Convert to paths relative to selection_root.
+  if [[ -n "${selection_rel}" ]]; then
+    printf "%s\n" "${files}" | sed "s#^${selection_rel}/##" >"${temp_list_file}"
+  else
+    printf "%s\n" "${files}" >"${temp_list_file}"
+  fi
+}
+
+build_fs_file_list() {
+  local selection_root="${1}"
+  local temp_list_file="${2}"
+
+  # Exclusion list is intentionally short and pragmatic.
+  # We can expand as we learn what users commonly hit.
+  (cd "${selection_root}" && find . \
+      -type d \( \
+        -name .git -o \
+        -name .gradle -o \
+        -name .kotlin -o \
+        -name .dart_tool -o \
+        -name node_modules -o \
+        -name Pods -o \
+        -name DerivedData -o \
+        -name .idea -o \
+        -name build -o \
+        -name dist -o \
+        -name target -o \
+        -name coverage -o \
+        -name .pytest_cache -o \
+        -name .cache -o \
+        -name .venv \
+      \) -prune -o \
+      -type f -print \
+    | sed 's#^\./##' \
+    | grep -v '^$' \
+    | grep -v '^\.DS_Store$' \
+    >"${temp_list_file}")
+}
+
+zip_from_list() {
+  local selection_root="${1}"
+  local temp_list_file="${2}"
+  local output_zip_abs="${3}"
+
+  if [[ ! -s "${temp_list_file}" ]]; then
+    echo "No files selected to zip." >&2
+    exit 2
+  fi
+
+  if ! is_command_available zip; then
+    echo "zip is required." >&2
+    exit 2
+  fi
+
+  local base parent
+  base="$(basename "${selection_root}")"
+  parent="$(cd -P "$(dirname "${selection_root}")" && pwd -P)"
+
+  # Ensure output directory exists.
+  mkdir -p "$(dirname "${output_zip_abs}")"
+
+  # Create zip from parent so the archive contains a single top-level folder.
+  # We prefix each path with "<base>/".
+  (cd "${parent}" && {
+      sed "s#^#${base}/#" "${temp_list_file}" \
+        | zip -q -@ "${output_zip_abs}"
+    })
+
+  echo "Created: ${output_zip_abs}"
+}
+
+cmd_run() {
+  local selection_root="."
+  local output_zip=""
+  local mode="auto"
+
+  while [[ "${#}" -gt 0 ]]; do
+    case "${1}" in
+      --output|-o)
+        output_zip="${2:-}"
+        shift 2
+        ;;
+      --mode)
+        mode="${2:-}"
+        shift 2
+        ;;
+      -h|--help|help)
+        print_usage
+        exit 0
+        ;;
+      *)
+        # First positional argument is the path.
+        if [[ "${selection_root}" == "." ]]; then
+          selection_root="${1}"
+          shift
+        else
+          echo "Unknown argument: ${1}" >&2
+          print_usage >&2
+          exit 2
+        fi
+        ;;
+    esac
+  done
+
+  mode="$(trim "${mode}")"
+  if [[ "${mode}" != "auto" && "${mode}" != "git" && "${mode}" != "fs" ]]; then
+    echo "Unknown mode: ${mode}" >&2
+    echo "Supported: auto, git, fs" >&2
+    exit 2
+  fi
+
+  local selection_root_abs
+  selection_root_abs="$(cd -P "${selection_root}" 2>/dev/null && pwd -P)" || {
+    echo "Path not found: ${selection_root}" >&2
+    exit 2
+  }
+
+  if [[ -z "${output_zip}" ]]; then
+    local base
+    base="$(basename "${selection_root_abs}")"
+    output_zip="${base}-share.zip"
+  fi
+
+  local output_zip_abs
+  output_zip_abs="$(abs_path "${output_zip}")"
+
+  local temp_list
+  temp_list="$(mktemp 2>/dev/null || mktemp -t "dt-zip-list")"
+
+  # Bash + `set -u` + `local` variables: local vars are unset after the function
+  # returns, but EXIT traps run at script exit. Expand the path eagerly so the
+  # trap does not reference an out-of-scope variable.
+  trap "rm -f '${temp_list}'" EXIT
+
+  local git_root
+  git_root=""
+  if [[ "${mode}" == "git" || "${mode}" == "auto" ]]; then
+    git_root="$(detect_git_root "${selection_root_abs}" 2>/dev/null || true)"
+  fi
+
+  if [[ "${mode}" == "git" && -z "${git_root}" ]]; then
+    echo "Mode 'git' selected but no git repo detected." >&2
+    exit 2
+  fi
+
+  if [[ -n "${git_root}" ]]; then
+    build_git_file_list "${selection_root_abs}" "${temp_list}"
+  else
+    build_fs_file_list "${selection_root_abs}" "${temp_list}"
+  fi
+
+  zip_from_list "${selection_root_abs}" "${temp_list}" "${output_zip_abs}"
+}
+
+main() {
+  local subcmd=""
+  if [[ "${#}" -ge 1 ]]; then
+    subcmd="${1}"
+    shift
+  fi
+
+  case "${subcmd}" in
+    run)
+      cmd_run "$@"
+      ;;
+    ""|help|-h|--help)
+      print_usage
+      ;;
+    *)
+      echo "Unknown subcommand: ${subcmd}" >&2
+      print_usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
