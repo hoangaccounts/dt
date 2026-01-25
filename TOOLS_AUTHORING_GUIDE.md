@@ -44,6 +44,14 @@ A new tool is considered “done” when:
     - `dt <tool-id> status`
 
 ---
+### Tool aliases (shortcuts)
+
+Tools may define optional shortcuts via an `ALIASES:` header field.
+
+- Format: comma-separated (spaces optional), e.g. `# ALIASES: ga, zp`
+- Aliases must not conflict with dt built-ins (`help`, `list`, `tags`, `install`, `uninstall`, `test`, `version`). Reserved aliases are ignored.
+- If two tools claim the same alias, dt resolves deterministically by choosing the lexicographically smallest tool id and surfaces the conflict in `dt list`.
+
 
 ## Shell compatibility (important)
 
@@ -74,6 +82,7 @@ Each tool must start with a help header made of **comment lines** and end with `
 ### Recommended header fields
 
 - `DESCRIPTION: ...`
+- `ALIASES: ga, zp`  (comma-separated tool shortcuts; optional)
 - `OPTIONS: ...`
 - `EXAMPLES: ...`
 - `OUTPUT: ...`

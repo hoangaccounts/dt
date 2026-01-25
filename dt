@@ -98,6 +98,7 @@ Usage:
   dt -tags
   dt <tool>
   dt <tool> [args...]
+  dt <alias> [args...]   (tool shortcut, if defined)
   dt install   (or: dt -install)
   dt uninstall (or: dt -uninstall)
   dt test      (or: dt -test)
@@ -107,6 +108,7 @@ Notes:
 - Each tool must be executable and start with a valid header that ends with:
     ### END HELP
 - dt <tool> (no args) prints tool help (safe by default).
+- Tools may define short aliases (e.g., 'git-aliases' → 'ga'); run 'dt list' to see them.
 - dt <tool> <...> runs the tool and passes args through.
 
 Examples:
@@ -115,6 +117,7 @@ Examples:
   dt list -t git
   dt help git-aliases
   dt git-aliases list
+  dt ga list
   dt git-aliases install
   dt test
 EOF
@@ -128,30 +131,30 @@ normalize_cmd() {
   # surface area.
   local raw="$1"
   case "${raw}" in
-    -help|--help|-h)
-      echo "help"
-      ;;
-    -version|--version)
-      echo "version"
-      ;;
-    -list|--list)
-      echo "list"
-      ;;
-    -tags|--tags)
-      echo "tags"
-      ;;
-    -install|--install)
-      echo "install"
-      ;;
-    -uninstall|--uninstall)
-      echo "uninstall"
-      ;;
-    -test|--test)
-      echo "test"
-      ;;
-    *)
-      echo "${raw}"
-      ;;
+  -help|--help|-h)
+    echo "help"
+    ;;
+  -version|--version)
+    echo "version"
+    ;;
+  -list|--list)
+    echo "list"
+    ;;
+  -tags|--tags)
+    echo "tags"
+    ;;
+  -install|--install)
+    echo "install"
+    ;;
+  -uninstall|--uninstall)
+    echo "uninstall"
+    ;;
+  -test|--test)
+    echo "test"
+    ;;
+  *)
+    echo "${raw}"
+    ;;
   esac
 }
 
@@ -169,6 +172,97 @@ is_approved_tag() {
 tool_path() {
   local tool="$1"
   echo "${TOOLS_DIR}/${tool}"
+}
+
+
+trim_ws() {
+  local s="${1}"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  echo "${s}"
+}
+
+is_reserved_dt_command() {
+  # If a tool claims an alias that matches a dt built-in command, the alias would
+  # never be reachable. Treat these as reserved and ignore them.
+  local candidate="${1}"
+  case "${candidate}" in
+  help|version|list|tags|install|uninstall|test)
+    return 0
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+}
+
+alias_winner_from_csv() {
+  # Input: comma-separated tool ids. Output: deterministic winner.
+  # Policy: lexical order (stable, predictable across machines).
+  local csv="${1}"
+  local -a parts=()
+  IFS=',' read -r -a parts <<<"${csv}"
+
+  local winner=""
+  local p
+  for p in "${parts[@]}"; do
+    p="$(trim_ws "${p}")"
+    [[ -n "${p}" ]] || continue
+    if [[ -z "${winner}" || "${p}" < "${winner}" ]]; then
+      winner="${p}"
+    fi
+  done
+
+  echo "${winner}"
+}
+
+resolve_tool_alias() {
+  # Given an alias like 'ga', find the tool id that owns it.
+  # If multiple tools claim the same alias, pick a deterministic winner.
+  local alias="${1}"
+
+  local -a matches=()
+  local f tool aliases_line
+  local -a aliases_raw
+  local a trimmed
+
+  for f in "${TOOLS_DIR}"/*; do
+    [[ -e "${f}" ]] || continue
+    [[ -f "${f}" ]] || continue
+    [[ -x "${f}" ]] || continue
+    has_valid_header "${f}" || continue
+
+    tool="$(basename "${f}")"
+    aliases_line="$(read_header_value "${f}" "ALIASES")"
+    [[ -n "${aliases_line}" ]] || continue
+
+    IFS=',' read -r -a aliases_raw <<<"${aliases_line}"
+    for a in "${aliases_raw[@]}"; do
+      trimmed="$(trim_ws "${a}")"
+      [[ -n "${trimmed}" ]] || continue
+      is_reserved_dt_command "${trimmed}" && continue
+      [[ "${trimmed}" == "${alias}" ]] || continue
+      matches+=("${tool}")
+    done
+  done
+
+  if [[ "${#matches[@]}" -eq 0 ]]; then
+    return 1
+  fi
+
+  local winner="${matches[0]}"
+  local m
+  for m in "${matches[@]}"; do
+    if [[ "${m}" < "${winner}" ]]; then
+      winner="${m}"
+    fi
+  done
+
+  if [[ "${#matches[@]}" -gt 1 ]]; then
+    echo "Alias conflict for '${alias}': ${matches[*]} — using '${winner}'." >&2
+  fi
+
+  echo "${winner}"
 }
 
 has_valid_header() {
@@ -253,14 +347,43 @@ list_tools() {
   local -a invalid=()
   local -a rows=()
 
+  # Track alias usage to surface conflicts in `dt list`.
+  local -a alias_keys=()
+  local -a alias_values=()
+  local -a reserved_aliases=()
+
   if [[ ! -d "${TOOLS_DIR}" ]]; then
     echo "Missing tools directory: ${TOOLS_DIR}" >&2
     exit 2
   fi
 
-  local f tool version summary tags_line
-  local -a tags_raw
-  local tag ok
+  add_alias_mapping() {
+    # alias_keys[i]   = alias
+    # alias_values[i] = comma-separated tool IDs
+    local alias="${1}"
+    local tool="${2}"
+    local i
+
+    for i in "${!alias_keys[@]}"; do
+      if [[ "${alias_keys[$i]}" == "${alias}" ]]; then
+        # Avoid duplicates.
+        case "${alias_values[$i]}" in
+        *",${tool},"*|"${tool},"*|*",${tool}"*|"${tool}")
+          return 0
+          ;;
+        esac
+        alias_values[$i]="${alias_values[$i]},${tool}"
+        return 0
+      fi
+    done
+
+    alias_keys+=("${alias}")
+    alias_values+=("${tool}")
+  }
+
+  local f tool version summary tags_line aliases_line
+  local -a tags_raw aliases_raw
+  local tag ok a
 
   for f in "${TOOLS_DIR}"/*; do
     [[ -e "${f}" ]] || continue
@@ -277,12 +400,12 @@ list_tools() {
     version="$(read_header_value "${f}" "VERSION")"
     summary="$(read_header_value "${f}" "SUMMARY")"
     tags_line="$(read_header_value "${f}" "TAGS")"
+    aliases_line="$(read_header_value "${f}" "ALIASES")"
 
     IFS=',' read -r -a tags_raw <<<"${tags_line}"
     ok=1
     for tag in "${tags_raw[@]}"; do
-      tag="${tag#"${tag%%[![:space:]]*}"}"
-      tag="${tag%"${tag##*[![:space:]]}"}"
+      tag="$(trim_ws "${tag}")"
       [[ -n "${tag}" ]] || continue
       if ! is_approved_tag "${tag}"; then
         ok=0
@@ -298,8 +421,7 @@ list_tools() {
     if [[ -n "${filter_tag}" ]]; then
       local has_tag=0
       for tag in "${tags_raw[@]}"; do
-        tag="${tag#"${tag%%[![:space:]]*}"}"
-        tag="${tag%"${tag##*[![:space:]]}"}"
+        tag="$(trim_ws "${tag}")"
         if [[ "${tag}" == "${filter_tag}" ]]; then
           has_tag=1
           break
@@ -308,11 +430,46 @@ list_tools() {
       [[ "${has_tag}" -eq 1 ]] || continue
     fi
 
-    rows+=("${tool} (v${version}) — ${summary}")
+    local alias_display=""
+    if [[ -n "${aliases_line}" ]]; then
+      IFS=',' read -r -a aliases_raw <<<"${aliases_line}"
+      local -a clean_aliases=()
+      for a in "${aliases_raw[@]}"; do
+        a="$(trim_ws "${a}")"
+        [[ -n "${a}" ]] || continue
+
+        if is_reserved_dt_command "${a}"; then
+          reserved_aliases+=("${tool}:${a}")
+          continue
+        fi
+
+        clean_aliases+=("${a}")
+        add_alias_mapping "${a}" "${tool}"
+      done
+
+      if [[ "${#clean_aliases[@]}" -gt 0 ]]; then
+        alias_display="[${clean_aliases[0]}"
+        local i
+        for i in "${!clean_aliases[@]}"; do
+          if [[ "${i}" -eq 0 ]]; then
+            continue
+          fi
+          alias_display="${alias_display},${clean_aliases[$i]}"
+        done
+        alias_display="${alias_display}]"
+      fi
+    fi
+
+    if [[ -n "${alias_display}" ]]; then
+      rows+=("${tool} ${alias_display} (v${version}) — ${summary}")
+    else
+      rows+=("${tool} (v${version}) — ${summary}")
+    fi
   done
 
   if [[ "${#rows[@]}" -gt 0 ]]; then
-    printf "%s\n" "${rows[@]}" | sort
+    printf "%s
+" "${rows[@]}" | sort
   else
     if [[ -n "${filter_tag}" ]]; then
       echo "No tools tagged '${filter_tag}'."
@@ -324,9 +481,45 @@ list_tools() {
   if [[ "${#invalid[@]}" -gt 0 ]]; then
     echo
     echo "Invalid tools (missing header / invalid tags / not executable):"
-    printf "  - %s\n" "${invalid[@]}" | sort
+    printf "  - %s
+" "${invalid[@]}" | sort
+  fi
+
+  # Surface alias conflicts.
+  local i
+  local printed=0
+  for i in "${!alias_keys[@]}"; do
+    case "${alias_values[$i]}" in
+    *,*)
+      if [[ "${printed}" -eq 0 ]]; then
+        echo
+        echo "Alias conflicts (winner = lexicographically smallest tool id):"
+        printed=1
+      fi
+      local -a candidates=()
+      IFS=',' read -r -a candidates <<<"${alias_values[$i]}"
+      local winner="${candidates[0]}"
+      local c
+      for c in "${candidates[@]}"; do
+        if [[ "${c}" < "${winner}" ]]; then
+          winner="${c}"
+        fi
+      done
+      printf "  - %s: %s -> %s
+" "${alias_keys[$i]}" "${alias_values[$i]}" "${winner}"
+      ;;
+    esac
+  done
+
+  if [[ "${#reserved_aliases[@]}" -gt 0 ]]; then
+    echo
+    echo "Ignored reserved aliases (dt built-ins win):"
+    printf "  - %s
+" "${reserved_aliases[@]}" | sort
   fi
 }
+
+
 
 list_tags() {
   # Bash 3.2 (macOS default) does not support associative arrays.
@@ -401,19 +594,19 @@ ensure_local_bin_on_path() {
   profile=""
 
   case "${shell_name}" in
-    zsh)
-      profile="${HOME}/.zshrc"
-      ;;
-    bash)
-      if [[ -f "${HOME}/.bashrc" ]]; then
-        profile="${HOME}/.bashrc"
-      else
-        profile="${HOME}/.bash_profile"
-      fi
-      ;;
-    *)
-      profile=""
-      ;;
+  zsh)
+    profile="${HOME}/.zshrc"
+    ;;
+  bash)
+    if [[ -f "${HOME}/.bashrc" ]]; then
+      profile="${HOME}/.bashrc"
+    else
+      profile="${HOME}/.bash_profile"
+    fi
+    ;;
+  *)
+    profile=""
+    ;;
   esac
 
   if [[ -z "${profile}" ]]; then
@@ -462,10 +655,10 @@ install_dt() {
   local force=0
   if [[ "${#}" -ge 1 ]]; then
     case "${1}" in
-      --force|-f)
-        force=1
-        shift || true
-        ;;
+    --force|-f)
+      force=1
+      shift || true
+      ;;
     esac
   fi
 
@@ -492,9 +685,9 @@ install_dt() {
         exit 2
       fi
 
-      echo "An existing dt symlink was found:" 
+      echo "An existing dt symlink was found:"
       echo "  ${DT_LINK} -> ${existing}"
-      echo "Replace it to point to this repo?" 
+      echo "Replace it to point to this repo?"
       echo "  ${DT_LINK} -> ${target}"
       echo "Proceed? [y/N]"
       local reply
@@ -524,10 +717,10 @@ uninstall_dt() {
   local force=0
   if [[ "${#}" -ge 1 ]]; then
     case "${1}" in
-      --force|-f|--yes)
-        force=1
-        shift || true
-        ;;
+    --force|-f|--yes)
+      force=1
+      shift || true
+      ;;
     esac
   fi
 
@@ -536,7 +729,7 @@ uninstall_dt() {
     existing="$(readlink "${DT_LINK}")"
 
     if [[ "${force}" -eq 0 && -t 0 ]]; then
-      echo "Found dt symlink:" 
+      echo "Found dt symlink:"
       echo "  ${DT_LINK} -> ${existing}"
       echo "Remove it? [y/N]"
       local reply
@@ -614,69 +807,86 @@ main() {
   shift || true
 
   case "${cmd}" in
-    help|-h|--help)
-      if [[ "${#}" -eq 0 ]]; then
-        print_dt_help
-      else
-        print_tool_help "${1}"
-      fi
-      ;;
-    version|--version)
-      echo "dt v${DT_VERSION}"
-      ;;
-    list)
-      if [[ "${#}" -ge 2 && "${1}" == "-t" ]]; then
-        local tag="${2}"
-        if ! is_approved_tag "${tag}"; then
-          echo "Unknown tag: ${tag}" >&2
-          echo "Run: dt tags" >&2
-          exit 2
+  help|-h|--help)
+    if [[ "${#}" -eq 0 ]]; then
+      print_dt_help
+    else
+      local requested="${1}"
+      if [[ ! -f "$(tool_path "${requested}")" ]]; then
+        local resolved
+        resolved="$(resolve_tool_alias "${requested}" 2>/dev/null || true)"
+        if [[ -n "${resolved}" ]]; then
+          requested="${resolved}"
         fi
-        list_tools "${tag}"
-      else
-        list_tools
       fi
-      ;;
-    tags)
-      list_tags
-      ;;
-    install)
-      # Bash 3.2 + `set -u` can treat an empty "$@" expansion as an
-      # unbound special parameter. Avoid expanding when there are no args.
-      if [[ "$#" -gt 0 ]]; then
-        install_dt "$@"
-      else
-        install_dt
-      fi
-      ;;
-    uninstall)
-      # Same compatibility guard as install.
-      if [[ "$#" -gt 0 ]]; then
-        uninstall_dt "$@"
-      else
-        uninstall_dt
-      fi
-      ;;
-    test)
-      run_tests
-      ;;
-    *)
-      local tool="${cmd}"
-      local file
-      file="$(tool_path "${tool}")"
-      if [[ ! -f "${file}" ]]; then
-        echo "Unknown command or tool: ${tool}" >&2
-        echo "Run: dt help" >&2
+      print_tool_help "${requested}"
+    fi
+    ;;
+  version|--version)
+    echo "dt v${DT_VERSION}"
+    ;;
+  list)
+    if [[ "${#}" -ge 2 && "${1}" == "-t" ]]; then
+      local tag="${2}"
+      if ! is_approved_tag "${tag}"; then
+        echo "Unknown tag: ${tag}" >&2
+        echo "Run: dt tags" >&2
         exit 2
       fi
-
-      if [[ "${#}" -eq 0 ]]; then
-        print_tool_help "${tool}"
-        exit 0
+      list_tools "${tag}"
+    else
+      list_tools
+    fi
+    ;;
+  tags)
+    list_tags
+    ;;
+  install)
+  # Bash 3.2 + `set -u` can treat an empty "$@" expansion as an
+  # unbound special parameter. Avoid expanding when there are no args.
+    if [[ "$#" -gt 0 ]]; then
+      install_dt "$@"
+    else
+      install_dt
+    fi
+    ;;
+  uninstall)
+  # Same compatibility guard as install.
+    if [[ "$#" -gt 0 ]]; then
+      uninstall_dt "$@"
+    else
+      uninstall_dt
+    fi
+    ;;
+  test)
+    run_tests
+    ;;
+  *)
+    local tool="${cmd}"
+    local file
+    file="$(tool_path "${tool}")"
+    if [[ ! -f "${file}" ]]; then
+      local resolved
+      resolved="$(resolve_tool_alias "${tool}" || true)"
+      if [[ -n "${resolved}" ]]; then
+        tool="${resolved}"
+        file="$(tool_path "${tool}")"
       fi
+    fi
 
-      exec "${file}" "${@}"
-      ;;
+    if [[ ! -f "${file}" ]]; then
+      echo "Unknown command or tool: ${tool}" >&2
+      echo "Run: dt help" >&2
+      exit 2
+    fi
+
+    if [[ "${#}" -eq 0 ]]; then
+      print_tool_help "${tool}"
+      exit 0
+    fi
+
+    exec "${file}" "${@}"
+    ;;
   esac
 }
 

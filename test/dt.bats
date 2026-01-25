@@ -26,6 +26,21 @@ load "support/test_helpers.bash"
   [[ "$output" == *"### END HELP"* ]]
 }
 
+
+
+@test "dt alias resolves to the tool" {
+  run "$(dt_bin)" ga list
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[alias]"* ]]
+}
+
+
+@test "dt help accepts an alias" {
+  run "$(dt_bin)" help ga
+  [ "$status" -eq 0 ]
+  [[ "$output" == VERSION:* ]]
+}
+
 @test "dt list flags invalid tools" {
   local tools_dir
   tools_dir="$(repo_root)/tools"

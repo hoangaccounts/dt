@@ -2,8 +2,11 @@
 # VERSION: 0.0.1
 # SUMMARY: Curated Git aliases with safe install/uninstall via ~/.gitconfig include.
 # TAGS: git
+# ALIASES: ga
 # SYNOPSIS: dt git-aliases
+#   dt ga
 #   dt git-aliases list
+#   dt ga list
 #   dt git-aliases install [--yes]
 #   dt git-aliases uninstall [--yes]
 #   dt git-aliases status

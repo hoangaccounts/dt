@@ -2,7 +2,9 @@
 # VERSION: 0.0.1
 # SUMMARY: Create a share-friendly zip of a project for LLM review (ChatGPT/Claude/etc.).
 # TAGS: share, project, files
+# ALIASES: zp
 # SYNOPSIS: dt zip-project run [path] [--output <zip>] [--mode auto|git|fs]
+#   dt zp run [path] [--output <zip>] [--mode auto|git|fs]
 # DESCRIPTION: Produce a compact project archive by excluding common build caches and
 #   generated directories. If the target is inside a git repo and git is available,
 #   zip-project will prefer git-aware file selection (tracked + untracked, excluding
