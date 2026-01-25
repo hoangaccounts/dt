@@ -331,13 +331,109 @@ print_tool_help() {
     exit 2
   fi
 
-  awk '
+  # Pretty, human-friendly help.
+  #
+  # Why:
+  # - Tool headers are designed to be easy to author and parse.
+  # - Raw key/value headers are not pleasant to read as CLI help.
+  #
+  # Design:
+  # - Parse the header into sections using a minimal rule:
+  #     KEY: value
+  #     continuation lines belong to the last KEY
+  # - Re-render as a small "man-ish" help page.
+  # - Never print the internal marker line (### END HELP).
+  awk -v tool="${tool}" '
+    function ltrim(s){ sub(/^[ \t\r\n]+/, "", s); return s }
+    function rtrim(s){ sub(/[ \t\r\n]+$/, "", s); return s }
+    function trim(s){ return rtrim(ltrim(s)) }
+    function remember_key(k){ if (!(k in seen)) { order[++order_n]=k; seen[k]=1 } }
+    function push(k, line){
+      remember_key(k)
+      if (k in sections) {
+        sections[k]=sections[k] "\n" line
+      } else {
+        sections[k]=line
+      }
+    }
+    function pretty_title(k){
+      if (k=="SYNOPSIS") return "Usage"
+      if (k=="DESCRIPTION") return "Description"
+      if (k=="OPTIONS") return "Options"
+      if (k=="EXAMPLES") return "Examples"
+      if (k=="OUTPUT") return "Output"
+      if (k=="SAFETY") return "Safety"
+      if (k=="DEPS") return "Dependencies"
+      if (k=="CREDITS") return "Credits"
+      if (k=="MISC") return "Notes"
+      # Default: Title Case the key.
+      k=tolower(k)
+      return toupper(substr(k,1,1)) substr(k,2)
+    }
+
     NR==1 && /^#!/ { next }
-    /^### END HELP$/ { print "### END HELP"; exit }
+    /^### END HELP$/ { exit }
     {
-      line=$0
-      sub(/^#[[:space:]]?/, "", line)
-      print line
+      raw=$0
+      sub(/^#[[:space:]]?/, "", raw)
+      if (match(raw, /^[A-Z][A-Z0-9_]*:/)) {
+        key=substr(raw, 1, RLENGTH-1) # without ':'
+        val=trim(substr(raw, RLENGTH+1))
+        current=key
+        push(key, val)
+      } else if (current != "") {
+        push(current, trim(raw))
+      }
+    }
+    END {
+      summary=sections["SUMMARY"]
+      version=sections["VERSION"]
+      tags=sections["TAGS"]
+      aliases=sections["ALIASES"]
+
+      if (summary=="") summary="(no summary)"
+
+      print tool " — " summary
+
+      meta=""
+      if (version!="") meta = meta "Version " version
+      if (tags!="") meta = meta (meta?" · ":"") "Tags: " tags
+      if (aliases!="") meta = meta (meta?" · ":"") "Aliases: " aliases
+      if (meta!="") print meta
+      print ""
+
+      for (i=1; i<=order_n; i++) {
+        k=order[i]
+        if (k=="VERSION" || k=="SUMMARY" || k=="TAGS" || k=="ALIASES") continue
+        content=sections[k]
+        if (content=="") continue
+        print pretty_title(k) ":"
+
+        n=split(content, lines, "\n")
+        for (j=1; j<=n; j++) {
+          if (lines[j]=="") { print ""; continue }
+
+          # Options are authored as a block; keep flag lines visually distinct.
+          if (k=="OPTIONS") {
+            if (lines[j] ~ /^--/ || lines[j] ~ /^-[A-Za-z]/) {
+              print "  " lines[j]
+            } else {
+              print "      " lines[j]
+            }
+            continue
+          }
+
+          # Usage + Examples read best as code-ish blocks.
+          if (k=="SYNOPSIS" || k=="EXAMPLES") {
+            print "  " lines[j]
+            continue
+          }
+
+          print "  " lines[j]
+        }
+
+        print ""
+      }
     }
   ' "${file}"
 }

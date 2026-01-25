@@ -18,12 +18,10 @@ load "support/test_helpers.bash"
 @test "dt help prints the tool header" {
   run "$(dt_bin)" help git-aliases
   [ "$status" -eq 0 ]
-  [[ "$output" == VERSION:* ]]
-  [[ "$output" == *$'\nSUMMARY:'* ]]
-  [[ "$output" == *$'\nTAGS:'* ]]
-  [[ "$output" == *$'\nSYNOPSIS:'* ]]
-  [[ "$output" == *$'\nSAFETY:'* ]]
-  [[ "$output" == *"### END HELP"* ]]
+  [[ "$output" == git-aliases* ]]
+  [[ "$output" == *$'\nUsage:'* ]]
+  [[ "$output" == *$'\nSafety:'* ]]
+  [[ "$output" != *"### END HELP"* ]]
 }
 
 
@@ -38,7 +36,7 @@ load "support/test_helpers.bash"
 @test "dt help accepts an alias" {
   run "$(dt_bin)" help ga
   [ "$status" -eq 0 ]
-  [[ "$output" == VERSION:* ]]
+  [[ "$output" == git-aliases* ]]
 }
 
 @test "dt list flags invalid tools" {
