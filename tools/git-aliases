@@ -1,213 +1,354 @@
 #!/usr/bin/env bash
 # VERSION: 0.0.1
-# SUMMARY: Print and optionally install a safe, curated set of git aliases.
-# TAGS: git, env
-# SYNOPSIS: dt git-aliases [list|install|uninstall|status] [--yes] [--no-status]
-# DESCRIPTION: Manage git aliases via a dedicated include file referenced from your
-#   global git config. This keeps ~/.gitconfig clean and makes uninstall predictable.
-# OPTIONS: --yes
-#   Skip the confirmation prompt for install/uninstall.
-#   --no-status
-#   Do not run the post-action status check. Useful when a user's existing
-#   gitconfig has a broken include recursion that can cause `git config` calls
-#   to hang.
-# EXAMPLES: dt git-aliases list
-#   dt git-aliases install
+# SUMMARY: Curated Git aliases with safe install/uninstall via ~/.gitconfig include.
+# TAGS: git
+# SYNOPSIS: dt git-aliases
+#   dt git-aliases list
+#   dt git-aliases install [--yes]
+#   dt git-aliases uninstall [--yes]
 #   dt git-aliases status
-#   dt git-aliases uninstall
-# OUTPUT: Writes ~/.config/dt/git-aliases.gitconfig when installing.
 # SAFETY: confirm
-# DEPS: git
+# EXAMPLES:
+#   dt git-aliases list
+#   dt git-aliases install
+#   dt git-aliases uninstall --yes
+#   dt git-aliases status
+# OUTPUT:
+#   Writes an include file:
+#     ~/.config/dt/git-aliases.gitconfig
+#   Adds/removes an [include] path line in:
+#     ~/.gitconfig
 # CREDITS: None
-# MISC: This tool intentionally avoids destructive aliases by default.
+# MISC:
+#   - This tool avoids calling `git config` to prevent hangs/recursion from existing includes.
+#   - Designed to work with macOS default Bash 3.2 (no associative arrays).
 ### END HELP
+
 set -euo pipefail
 
-CONFIRM=1
-# Post-action status checks call `git config`, which can hang if a user's
-# existing git configuration has a broken include recursion. To keep installs
-# snappy and robust by default, we do NOT run status automatically.
-RUN_STATUS=0
+readonly TOOL_ID="git-aliases"
+readonly INCLUDE_RELATIVE_PATH=".config/dt/git-aliases.gitconfig"
 
-CONFIG_DIR="${HOME}/.config/dt"
-INCLUDE_FILE="${CONFIG_DIR}/git-aliases.gitconfig"
+main() {
+  local subcommand="${1:-}"
+  shift || true
 
-print_usage() {
-  echo "Run: dt help git-aliases"
-}
-
-confirm() {
-  local prompt="${1}"
-  if [[ "${CONFIRM}" -eq 0 ]]; then
-    return 0
-  fi
-  read -r -p "${prompt} [y/N] " reply
-  case "${reply}" in
-    y|Y|yes|YES) return 0 ;;
-    *) return 1 ;;
+  case "$subcommand" in
+    ""|-help|--help|help)
+      print_help
+      ;;
+    list)
+      print_alias_block
+      ;;
+    install)
+      install_aliases "$@"
+      ;;
+    uninstall)
+      uninstall_aliases "$@"
+      ;;
+    status)
+      print_status
+      ;;
+    *)
+      echo "Unknown subcommand: $subcommand" >&2
+      echo >&2
+      print_help
+      exit 2
+      ;;
   esac
 }
 
-escape_regex() {
-  # Escape a string so it can be used as an anchored regex in git config --unset-all.
-  # We escape: \\ . ^ $ * + ? ( ) [ ] { } | /
-  local s="${1}"
-  s="${s//\\/\\\\}"
-  s="${s//./\\.}"
-  s="${s//^/\\^}"
-  s="${s//\$/\\$}"
-  s="${s//\*/\\*}"
-  s="${s//+/\\+}"
-  s="${s//\?/\\?}"
-  s="${s//\(/\\(}"
-  s="${s//\)/\\)}"
-  s="${s//[/\\[}"
-  s="${s//]/\\]}"
-  s="${s//\{/\\{}"
-  s="${s//\}/\\}}"
-  s="${s//|/\\|}"
-  s="${s//\//\\/}"
-  echo "${s}"
+print_help() {
+  # Print this tool's header (everything up to ### END HELP), stripping leading "# " for readability.
+  # shellcheck disable=SC2016
+  awk '
+    NR==1 && $0 ~ /^#!/ { next }
+    $0 ~ /^### END HELP$/ { exit }
+    $0 ~ /^# / { sub(/^# /, "", $0); print; next }
+    $0 ~ /^#$/ { print ""; next }
+  ' "$0"
 }
 
+require_confirmation_or_yes() {
+  local yes_flag="${1:-}"
+  if [[ "$yes_flag" == "--yes" ]]; then
+    return 0
+  fi
 
+  echo "This will modify:"
+  echo "  - \$HOME/.gitconfig (add/remove an [include] path line)"
+  echo "  - \$HOME/$INCLUDE_RELATIVE_PATH (create/delete include file)"
+  echo
+  printf "Continue? [y/N] "
+  local answer=""
+  IFS= read -r answer
+  case "$answer" in
+    y|Y|yes|YES) return 0 ;;
+    *) echo "Canceled."; exit 0 ;;
+  esac
+}
 
+home_dir() {
+  # Prefer HOME; fall back to ~ expansion.
+  if [[ -n "${HOME:-}" ]]; then
+    printf "%s" "$HOME"
+    return 0
+  fi
+  printf "%s" "$(cd ~ && pwd)"
+}
 
-render_aliases_gitconfig() {
+include_file_path() {
+  local home
+  home="$(home_dir)"
+  printf "%s/%s" "$home" "$INCLUDE_RELATIVE_PATH"
+}
+
+gitconfig_path() {
+  local home
+  home="$(home_dir)"
+  printf "%s/.gitconfig" "$home"
+}
+
+include_line_absolute() {
+  # The exact line we add/remove.
+  local include_file
+  include_file="$(include_file_path)"
+  printf "    path = %s" "$include_file"
+}
+
+include_line_tilde() {
+  # A tilde form might exist from older installs or manual edits; we remove it too.
+  printf "    path = ~/%s" "$INCLUDE_RELATIVE_PATH"
+}
+
+print_alias_block() {
   cat <<'EOF'
-# Managed by dt git-aliases.
-# You can edit this file, but changes may be overwritten by re-installing.
-
 [alias]
-  st = status -sb
-  br = branch -vv
-  co = checkout
-  sw = switch
-  ci = commit
-  cm = commit -m
-  amend = commit --amend --no-edit
-  unstage = restore --staged
-  last = log -1 --stat
-  lg = log --graph --decorate --oneline --all
-
-  # Maintenance (safe; does not delete local branches)
-  prune-gone = !git fetch --prune
+    st = status -sb
+    co = switch
+    cob = switch -c
+    br = branch -vv
+    ci = commit
+    ca = commit --amend
+    cane = commit --amend --no-edit
+    undo = reset --soft HEAD~1
+    unstage = restore --staged --
+    last = log -1 --stat
+    lg = log --graph --decorate --oneline --all
+    wip = commit -am "wip"
+    prunegone = fetch --prune
 EOF
 }
 
-cmd_list() {
-  render_aliases_gitconfig
+ensure_parent_dir() {
+  local path="$1"
+  local dir
+  dir="$(dirname "$path")"
+  mkdir -p "$dir"
 }
 
-cmd_status() {
-  if [[ -f "${INCLUDE_FILE}" ]]; then
-    echo "Include file exists: ${INCLUDE_FILE}"
-  else
-    echo "Include file missing: ${INCLUDE_FILE}"
-  fi
+write_include_file() {
+  local include_file
+  include_file="$(include_file_path)"
+  ensure_parent_dir "$include_file"
 
-  local includes
-  includes="$(git config --global --get-all include.path || true)"
-  if grep -Fxq "${INCLUDE_FILE}" <<<"${includes}"; then
-    echo "Global gitconfig includes: ${INCLUDE_FILE}"
-  else
-    echo "Global gitconfig does not include: ${INCLUDE_FILE}"
+  # Write deterministically.
+  cat > "$include_file" <<'EOF'
+[alias]
+    st = status -sb
+    co = switch
+    cob = switch -c
+    br = branch -vv
+    ci = commit
+    ca = commit --amend
+    cane = commit --amend --no-edit
+    undo = reset --soft HEAD~1
+    unstage = restore --staged --
+    last = log -1 --stat
+    lg = log --graph --decorate --oneline --all
+    wip = commit -am "wip"
+    prunegone = fetch --prune
+EOF
+}
+
+ensure_gitconfig_exists() {
+  local gitconfig
+  gitconfig="$(gitconfig_path)"
+  if [[ ! -f "$gitconfig" ]]; then
+    # Create an empty config file.
+    : > "$gitconfig"
   fi
 }
 
-ensure_include_present() {
-  local includes
-  includes="$(git config --global --get-all include.path || true)"
-  if grep -Fxq "${INCLUDE_FILE}" <<<"${includes}"; then
+gitconfig_contains_include_line() {
+  local gitconfig
+  gitconfig="$(gitconfig_path)"
+
+  local abs_line tilde_line
+  abs_line="$(include_line_absolute)"
+  tilde_line="$(include_line_tilde)"
+
+  # Match both the absolute path and the tilde form.
+  grep -Fq "$abs_line" "$gitconfig" 2>/dev/null && return 0
+  grep -Fq "$tilde_line" "$gitconfig" 2>/dev/null && return 0
+  return 1
+}
+
+append_include_to_gitconfig() {
+  local gitconfig
+  gitconfig="$(gitconfig_path)"
+
+  local abs_line
+  abs_line="$(include_line_absolute)"
+
+  # Append a dedicated include section at the end. This is simple, safe, and idempotent
+  # because we guard with gitconfig_contains_include_line().
+  cat >> "$gitconfig" <<EOF
+
+[include]
+$abs_line
+EOF
+}
+
+install_aliases() {
+  local maybe_yes="${1:-}"
+  require_confirmation_or_yes "$maybe_yes"
+
+  ensure_gitconfig_exists
+  write_include_file
+
+  if gitconfig_contains_include_line; then
+    echo "Already installed (include already present)."
     return 0
   fi
-  git config --global --add include.path "${INCLUDE_FILE}"
+
+  append_include_to_gitconfig
+  echo "Installed:"
+  echo "  Include file: $(include_file_path)"
+  echo "  Updated:      $(gitconfig_path)"
 }
 
-ensure_include_absent() {
-  local includes
-  includes="$(git config --global --get-all include.path || true)"
-  if ! grep -Fxq "${INCLUDE_FILE}" <<<"${includes}"; then
-    return 0
-  fi
+uninstall_aliases() {
+  local maybe_yes="${1:-}"
+  require_confirmation_or_yes "$maybe_yes"
 
-  local escaped
-  escaped="$(escape_regex "${INCLUDE_FILE}")"
-  git config --global --unset-all include.path "^${escaped}$"
+  ensure_gitconfig_exists
+  remove_include_lines_from_gitconfig
+  remove_include_file_if_present
+
+  echo "Uninstalled:"
+  echo "  Removed include lines from: $(gitconfig_path)"
+  echo "  Deleted include file:       $(include_file_path)"
 }
 
-cmd_install() {
-  if ! confirm "Install git aliases include at ${INCLUDE_FILE} and update ~/.gitconfig?"; then
-    echo "Canceled."
-    exit 1
-  fi
+remove_include_lines_from_gitconfig() {
+  local gitconfig
+  gitconfig="$(gitconfig_path)"
 
-  mkdir -p "${CONFIG_DIR}"
-  render_aliases_gitconfig > "${INCLUDE_FILE}"
-  ensure_include_present
+  local abs_line tilde_line
+  abs_line="$(include_line_absolute)"
+  tilde_line="$(include_line_tilde)"
 
-  echo "Installed git aliases."
-  if [[ "${RUN_STATUS}" -eq 1 ]]; then
-    cmd_status
+  # Create a temp file in the same directory for atomic-ish replace on macOS.
+  local tmp="${gitconfig}.dt_tmp"
+
+  # Remove:
+  # - exact path lines we own (absolute + tilde form)
+  # - and remove a now-empty [include] section if it becomes empty *because* of those removals.
+  #
+  # This parser is intentionally conservative: it only removes the specific `path = ...` lines
+  # we own. It will not touch other include paths.
+  awk -v ABS_LINE="$abs_line" -v TILDE_LINE="$tilde_line" '
+    function ltrim(s) { sub(/^[ \t\r\n]+/, "", s); return s }
+    function rtrim(s) { sub(/[ \t\r\n]+$/, "", s); return s }
+    function trim(s) { return rtrim(ltrim(s)) }
+
+    BEGIN {
+      in_include = 0
+      include_header_line = ""
+      include_buf_count = 0
+    }
+
+    function flush_include_section() {
+      if (!in_include) return
+
+      # include_header_line is like "[include]"
+      # include_buf contains lines following the header, possibly empty/comment lines.
+      # We keep the section if it has any "real" lines remaining.
+      if (include_buf_count > 0) {
+        print include_header_line
+        for (i = 1; i <= include_buf_count; i++) {
+          print include_buf[i]
+        }
+      }
+      include_header_line = ""
+      include_buf_count = 0
+      in_include = 0
+    }
+
+    /^\[/ {
+      # New section starts; flush prior include section if any.
+      flush_include_section()
+
+      # Enter [include] section
+      if ($0 ~ /^\[include\][ \t]*$/) {
+        in_include = 1
+        include_header_line = $0
+        next
+      }
+
+      # Not include; print header as-is.
+      print $0
+      next
+    }
+
+    {
+      if (!in_include) {
+        print $0
+        next
+      }
+
+      # Inside [include]: remove only the exact lines we own.
+      if ($0 == ABS_LINE || $0 == TILDE_LINE) {
+        next
+      }
+
+      # Keep everything else in include section.
+      include_buf[++include_buf_count] = $0
+      next
+    }
+
+    END {
+      flush_include_section()
+    }
+  ' "$gitconfig" > "$tmp"
+
+  mv "$tmp" "$gitconfig"
+}
+
+remove_include_file_if_present() {
+  local include_file
+  include_file="$(include_file_path)"
+  if [[ -f "$include_file" ]]; then
+    rm -f "$include_file"
   fi
 }
 
-cmd_uninstall() {
-  if ! confirm "Uninstall git aliases (remove include and delete ${INCLUDE_FILE})?"; then
-    echo "Canceled."
-    exit 1
+print_status() {
+  ensure_gitconfig_exists
+
+  local include_file
+  include_file="$(include_file_path)"
+
+  local is_installed="no"
+  if gitconfig_contains_include_line && [[ -f "$include_file" ]]; then
+    is_installed="yes"
   fi
 
-  ensure_include_absent
-  if [[ -f "${INCLUDE_FILE}" ]]; then
-    rm "${INCLUDE_FILE}"
-  fi
-
-  echo "Uninstalled git aliases."
-  if [[ "${RUN_STATUS}" -eq 1 ]]; then
-    cmd_status
-  fi
-}
-
-main() {
-  local subcmd="list"
-  while [[ "${#}" -gt 0 ]]; do
-    case "${1}" in
-      list|install|uninstall|status)
-        subcmd="${1}"
-        shift
-        ;;
-      --yes)
-        CONFIRM=0
-        shift
-        ;;
-      --no-status)
-        RUN_STATUS=0
-        shift
-        ;;
-      --status)
-        RUN_STATUS=1
-        shift
-        ;;
-      -h|--help|help)
-        print_usage
-        exit 0
-        ;;
-      *)
-        echo "Unknown argument: ${1}" >&2
-        print_usage >&2
-        exit 2
-        ;;
-    esac
-  done
-
-  case "${subcmd}" in
-    list) cmd_list ;;
-    status) cmd_status ;;
-    install) cmd_install ;;
-    uninstall) cmd_uninstall ;;
-    *) print_usage; exit 2 ;;
-  esac
+  echo "Tool: $TOOL_ID"
+  echo "Installed: $is_installed"
+  echo "Gitconfig: $(gitconfig_path)"
+  echo "Include:   $include_file"
 }
 
 main "$@"
