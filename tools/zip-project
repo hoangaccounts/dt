@@ -8,7 +8,7 @@
 #   zip-project will prefer git-aware file selection (tracked + untracked, excluding
 #   ignored files) for a cleaner archive.
 # OPTIONS: --output <zip>
-#   Output zip file path. Defaults to '<project-name>-share.zip' in the current directory.
+#   Output zip file path. Defaults to '<dir-name>-<timestamp>.zip' in the current directory.
 #   --mode <auto|git|fs>
 #   File selection mode. 'auto' prefers git when available; 'fs' uses filesystem scanning.
 # EXAMPLES: dt zip-project run .
@@ -119,24 +119,24 @@ build_fs_file_list() {
   # Exclusion list is intentionally short and pragmatic.
   # We can expand as we learn what users commonly hit.
   (cd "${selection_root}" && find . \
-      -type d \( \
-        -name .git -o \
-        -name .gradle -o \
-        -name .kotlin -o \
-        -name .dart_tool -o \
-        -name node_modules -o \
-        -name Pods -o \
-        -name DerivedData -o \
-        -name .idea -o \
-        -name build -o \
-        -name dist -o \
-        -name target -o \
-        -name coverage -o \
-        -name .pytest_cache -o \
-        -name .cache -o \
-        -name .venv \
-      \) -prune -o \
-      -type f -print \
+    -type d \( \
+    -name .git -o \
+    -name .gradle -o \
+    -name .kotlin -o \
+    -name .dart_tool -o \
+    -name node_modules -o \
+    -name Pods -o \
+    -name DerivedData -o \
+    -name .idea -o \
+    -name build -o \
+    -name dist -o \
+    -name target -o \
+    -name coverage -o \
+    -name .pytest_cache -o \
+    -name .cache -o \
+    -name .venv \
+    \) -prune -o \
+    -type f -print \
     | sed 's#^\./##' \
     | grep -v '^$' \
     | grep -v '^\.DS_Store$' \
@@ -168,9 +168,9 @@ zip_from_list() {
   # Create zip from parent so the archive contains a single top-level folder.
   # We prefix each path with "<base>/".
   (cd "${parent}" && {
-      sed "s#^#${base}/#" "${temp_list_file}" \
-        | zip -q -@ "${output_zip_abs}"
-    })
+    sed "s#^#${base}/#" "${temp_list_file}" \
+      | zip -q -@ "${output_zip_abs}"
+  })
 
   echo "Created: ${output_zip_abs}"
 }
@@ -182,29 +182,29 @@ cmd_run() {
 
   while [[ "${#}" -gt 0 ]]; do
     case "${1}" in
-      --output|-o)
-        output_zip="${2:-}"
-        shift 2
-        ;;
-      --mode)
-        mode="${2:-}"
-        shift 2
-        ;;
-      -h|--help|help)
-        print_usage
-        exit 0
-        ;;
-      *)
-        # First positional argument is the path.
-        if [[ "${selection_root}" == "." ]]; then
-          selection_root="${1}"
-          shift
-        else
-          echo "Unknown argument: ${1}" >&2
-          print_usage >&2
-          exit 2
-        fi
-        ;;
+    --output|-o)
+      output_zip="${2:-}"
+      shift 2
+      ;;
+    --mode)
+      mode="${2:-}"
+      shift 2
+      ;;
+    -h|--help|help)
+      print_usage
+      exit 0
+      ;;
+    *)
+    # First positional argument is the path.
+      if [[ "${selection_root}" == "." ]]; then
+        selection_root="${1}"
+        shift
+      else
+        echo "Unknown argument: ${1}" >&2
+        print_usage >&2
+        exit 2
+      fi
+      ;;
     esac
   done
 
@@ -222,9 +222,13 @@ cmd_run() {
   }
 
   if [[ -z "${output_zip}" ]]; then
-    local base
+    local base timestamp
     base="$(basename "${selection_root_abs}")"
-    output_zip="${base}-share.zip"
+    timestamp="${DT_TIMESTAMP:-}"
+    if [[ -z "${timestamp}" ]]; then
+      timestamp="$(date +%Y%m%d-%H%M%S)"
+    fi
+    output_zip="${base}-${timestamp}.zip"
   fi
 
   local output_zip_abs
@@ -266,17 +270,17 @@ main() {
   fi
 
   case "${subcmd}" in
-    run)
-      cmd_run "$@"
-      ;;
-    ""|help|-h|--help)
-      print_usage
-      ;;
-    *)
-      echo "Unknown subcommand: ${subcmd}" >&2
-      print_usage >&2
-      exit 2
-      ;;
+  run)
+    cmd_run "$@"
+    ;;
+  ""|help|-h|--help)
+    print_usage
+    ;;
+  *)
+    echo "Unknown subcommand: ${subcmd}" >&2
+    print_usage >&2
+    exit 2
+    ;;
   esac
 }
 

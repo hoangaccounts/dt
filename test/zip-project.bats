@@ -85,3 +85,33 @@ require_cmd() {
 
   rm -rf "${project_dir}" || true
 }
+
+@test "zip-project defaults output name to <dir-name>-<timestamp>.zip" {
+  require_cmd zip
+  require_cmd unzip
+
+  local project_dir
+  project_dir="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-zip-project")"
+  local project_name
+  project_name="$(basename "${project_dir}")"
+
+  mkdir -p "${project_dir}/src"
+  printf '%s\n' 'ok' >"${project_dir}/src/app.txt"
+
+  # Freeze time for deterministic output naming.
+  local ts
+  ts="20260125-181000"
+
+  local expected_zip
+  expected_zip="${project_dir}/${project_name}-${ts}.zip"
+
+  run bash -c "cd '${project_dir}' && DT_TIMESTAMP='${ts}' '$(dt_bin)' zip-project run . --mode fs"
+  [ "$status" -eq 0 ]
+  [ -f "${expected_zip}" ]
+
+  local files
+  files="$(unzip -Z1 "${expected_zip}" | sort)"
+  [[ "${files}" == *"${project_name}/src/app.txt"* ]]
+
+  rm -rf "${project_dir}" || true
+}
