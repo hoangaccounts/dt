@@ -1,0 +1,712 @@
+#!/usr/bin/env bash
+# VERSION: 0.1.0
+# SUMMARY: Install a safe, preset-based shell prompt with optional mindful reminders.
+# TAGS: shell, env
+# SAFETY: confirm
+# SYNOPSIS: dt prompt
+#   dt prompt install [--yes]
+#   dt prompt uninstall [--yes]
+#   dt prompt status
+#   dt prompt use [preset]
+# DESCRIPTION:
+#   This tool writes shell integration scripts under ~/.dt/prompt/ and adds/removes a
+#   dt-owned marker block in your shell rc file(s) to source the script.
+#
+#   Presets:
+#     - Tech (single-line): focus, minimal, git, calm, powerline, statusline, mono, intent, mode, timer, balance, craft, journey
+#     - Reminders (two-line): mantra, wisdom, gratitude, presence, pomodoro
+#
+#   Reminder presets rotate every 7 commands (stored in ~/.dt/prompt/state).
+#
+#   Safety: install/uninstall only adds/removes a dt-owned marker block.
+# OPTIONS:
+#   --yes      Skip confirmation prompt for install/uninstall.
+# OUTPUT:
+#   Writes:
+#     ~/.dt/prompt/config
+#     ~/.dt/prompt/state
+#     ~/.dt/prompt/prompt.zsh
+#     ~/.dt/prompt/prompt.bash
+#   Modifies (install/uninstall only):
+#     ~/.zshrc, ~/.bashrc, ~/.bash_profile (adds/removes a dt-owned source block)
+# DEPS: awk, grep, mkdir, mv, rm, sed
+### END HELP
+
+set -euo pipefail
+
+readonly TOOL_ID="prompt"
+readonly DT_DIR_RELATIVE_PATH=".dt/prompt"
+readonly CONFIG_FILE_NAME="config"
+readonly STATE_FILE_NAME="state"
+readonly ZSH_SCRIPT_NAME="prompt.zsh"
+readonly BASH_SCRIPT_NAME="prompt.bash"
+readonly MARKER_START="# dt:prompt start"
+readonly MARKER_END="# dt:prompt end"
+
+main() {
+  local subcommand="${1:-}"
+  shift || true
+
+  case "$subcommand" in
+    ""|-h|--help|help) print_help ;;
+    install) install_integration "$@" ;;
+    uninstall) uninstall_integration "$@" ;;
+    status) print_status ;;
+    use) use_preset "$@" ;;
+    *)
+      echo "Unknown subcommand: $subcommand" >&2
+      echo >&2
+      print_help >&2
+      exit 2
+      ;;
+  esac
+}
+
+print_help() {
+  awk '
+    NR==1 && $0 ~ /^#!/ { next }
+    $0 ~ /^### END HELP$/ { exit }
+    $0 ~ /^#/ {
+      sub(/^# ?/, "", $0)
+      print
+      next
+    }
+  ' "$0"
+}
+
+home_dir() {
+  if [[ -n "${HOME:-}" ]]; then
+    printf "%s" "$HOME"
+    return 0
+  fi
+  printf "%s" "$(cd ~ && pwd)"
+}
+
+dt_dir() {
+  local home
+  home="$(home_dir)"
+  printf "%s/%s" "$home" "$DT_DIR_RELATIVE_PATH"
+}
+
+config_path() { printf "%s/%s" "$(dt_dir)" "$CONFIG_FILE_NAME"; }
+state_path() { printf "%s/%s" "$(dt_dir)" "$STATE_FILE_NAME"; }
+zsh_script_path() { printf "%s/%s" "$(dt_dir)" "$ZSH_SCRIPT_NAME"; }
+bash_script_path() { printf "%s/%s" "$(dt_dir)" "$BASH_SCRIPT_NAME"; }
+
+ensure_dt_dir() { mkdir -p "$(dt_dir)"; }
+
+ensure_default_config() {
+  ensure_dt_dir
+  local cfg
+  cfg="$(config_path)"
+  if [[ ! -f "$cfg" ]]; then
+    printf "preset=focus\n" > "$cfg"
+  fi
+}
+
+ensure_state_file() {
+  ensure_dt_dir
+  local st
+  st="$(state_path)"
+  if [[ ! -f "$st" ]]; then
+    printf "command_count=0\n" > "$st"
+  fi
+}
+
+require_confirmation_or_yes() {
+  local maybe_yes="${1:-}"
+  if [[ "$maybe_yes" == "--yes" ]]; then
+    return 0
+  fi
+  echo "This will:"
+  echo "  - write: $(zsh_script_path)"
+  echo "  - write: $(bash_script_path)"
+  echo "  - modify: $(home_dir)/.zshrc (adds a dt-owned source block)"
+  echo "  - modify: $(home_dir)/.bashrc / .bash_profile (adds a dt-owned source block if bash is detected)"
+  echo
+  printf "Continue? [y/N] "
+  local reply
+  read -r reply
+  if [[ "${reply}" != "y" && "${reply}" != "Y" ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+}
+
+install_integration() {
+  require_confirmation_or_yes "${1:-}"
+  ensure_default_config
+  ensure_state_file
+  write_zsh_script
+  write_bash_script
+  add_rc_block_if_missing
+  echo "Installed."
+  echo "Changes will apply in new terminal sessions. To apply now, run: exec zsh"
+}
+
+uninstall_integration() {
+  require_confirmation_or_yes "${1:-}"
+  remove_rc_block_if_present
+  rm -rf "$(dt_dir)"
+  echo "Uninstalled."
+  echo "Changes will apply in new terminal sessions. To apply now, run: exec zsh"
+}
+
+print_status() {
+  local cfg st zs bs
+  cfg="$(config_path)"
+  st="$(state_path)"
+  zs="$(zsh_script_path)"
+  bs="$(bash_script_path)"
+
+  local enabled="no"
+  if rc_has_marker "$(home_dir)/.zshrc" || rc_has_marker "$(home_dir)/.bashrc" || rc_has_marker "$(home_dir)/.bash_profile"; then
+    enabled="yes"
+  fi
+
+  echo "enabled: ${enabled}"
+  echo "preset: $(current_preset)"
+  echo "config: ${cfg}"
+  echo "state:  ${st}"
+  echo "zsh:    ${zs}"
+  echo "bash:   ${bs}"
+}
+
+current_preset() {
+  local cfg
+  cfg="$(config_path)"
+  if [[ ! -f "$cfg" ]]; then
+    printf "focus"
+    return 0
+  fi
+  local value
+  value="$(awk -F= '/^preset=/{print $2; exit}' "$cfg" 2>/dev/null || true)"
+  value="${value//$'\r'/}"
+  value="$(echo "$value" | sed 's/^ *//; s/ *$//')"
+  if [[ -z "$value" ]]; then
+    value="focus"
+  fi
+  printf "%s" "$value"
+}
+
+use_preset() {
+  ensure_default_config
+  local preset="${1:-}"
+  if [[ -z "$preset" ]]; then
+    print_presets
+    return 0
+  fi
+
+  if ! is_known_preset "$preset"; then
+    echo "Unknown preset: $preset" >&2
+    echo >&2
+    print_presets >&2
+    exit 2
+  fi
+
+  printf "preset=%s\n" "$preset" > "$(config_path)"
+  # Intentionally no output (quiet UX).
+}
+
+print_presets() {
+  echo "current: $(current_preset)"
+  echo
+  echo "Core:"
+  echo "  focus"
+  echo "  minimal"
+  echo "  git"
+  echo "  calm"
+  echo
+  echo "Popular:"
+  echo "  powerline"
+  echo "  statusline"
+  echo "  mono"
+  echo
+  echo "Cognitive:"
+  echo "  intent"
+  echo "  mode"
+  echo "  timer"
+  echo
+  echo "Reminders:"
+  echo "  mantra"
+  echo "  wisdom"
+  echo "  gratitude"
+  echo "  presence"
+  echo "  pomodoro"
+  echo
+  echo "Hybrid:"
+  echo "  balance"
+  echo "  craft"
+  echo "  journey"
+}
+
+is_known_preset() {
+  case "$1" in
+    focus|minimal|git|calm|powerline|statusline|mono|intent|mode|timer|mantra|wisdom|gratitude|presence|pomodoro|balance|craft|journey) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+rc_has_marker() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  grep -qF "$MARKER_START" "$file"
+}
+
+add_rc_block_if_missing() {
+  local zshrc bashrc bash_profile
+  zshrc="$(home_dir)/.zshrc"
+  bashrc="$(home_dir)/.bashrc"
+  bash_profile="$(home_dir)/.bash_profile"
+
+  ensure_rc_block "$zshrc" "$(zsh_script_path)"
+
+  # Bash is optional: we only add if either rc file exists (so we don't create new files unexpectedly).
+  if [[ -f "$bashrc" ]]; then
+    ensure_rc_block "$bashrc" "$(bash_script_path)"
+  elif [[ -f "$bash_profile" ]]; then
+    ensure_rc_block "$bash_profile" "$(bash_script_path)"
+  fi
+}
+
+remove_rc_block_if_present() {
+  local zshrc bashrc bash_profile
+  zshrc="$(home_dir)/.zshrc"
+  bashrc="$(home_dir)/.bashrc"
+  bash_profile="$(home_dir)/.bash_profile"
+
+  remove_rc_block "$zshrc"
+  remove_rc_block "$bashrc"
+  remove_rc_block "$bash_profile"
+}
+
+ensure_rc_block() {
+  local rc_file="$1"
+  local source_file="$2"
+
+  # Create rc file if it doesn't exist (zshrc is common and safe).
+  if [[ ! -f "$rc_file" ]]; then
+    touch "$rc_file"
+  fi
+
+  if rc_has_marker "$rc_file"; then
+    return 0
+  fi
+
+  {
+    echo
+    echo "$MARKER_START"
+    printf 'source "%s"\n' "$source_file"
+    echo "$MARKER_END"
+  } >> "$rc_file"
+}
+
+remove_rc_block() {
+  local rc_file="$1"
+  [[ -f "$rc_file" ]] || return 0
+  if ! rc_has_marker "$rc_file"; then
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp)"
+  awk -v start="$MARKER_START" -v end="$MARKER_END" '
+    BEGIN { inside=0 }
+    $0 == start { inside=1; next }
+    $0 == end { inside=0; next }
+    inside==1 { next }
+    { print }
+  ' "$rc_file" > "$tmp"
+  mv "$tmp" "$rc_file"
+}
+
+write_zsh_script() {
+  local path
+  path="$(zsh_script_path)"
+  cat > "$path" <<'ZSH'
+# dt prompt (zsh)
+# This file is owned by dt. Changes may be overwritten.
+
+_dt_prompt_home="${HOME:-}"
+_dt_prompt_dir="$_dt_prompt_home/.dt/prompt"
+_dt_prompt_config="$_dt_prompt_dir/config"
+_dt_prompt_state="$_dt_prompt_dir/state"
+
+_dt_prompt_read_kv() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 0
+  awk -F= -v k="$key" '$1==k{print $2; exit}' "$file" 2>/dev/null
+}
+
+_dt_prompt_trim() {
+  local s="$1"
+  s="${s//$'
+'/}"
+  # trim leading
+  s="${s#"${s%%[![:space:]]*}"}"
+  # trim trailing
+  s="${s%"${s##*[![:space:]]}"}"
+  print -r -- "$s"
+}
+
+_dt_prompt_is_git_repo() { command git rev-parse --is-inside-work-tree >/dev/null 2>&1 }
+_dt_prompt_git_branch() { command git rev-parse --abbrev-ref HEAD 2>/dev/null }
+_dt_prompt_git_dirty() { command git diff --quiet --ignore-submodules -- 2>/dev/null || print -r -- "*" }
+
+_dt_prompt_repo_or_dir() {
+  if _dt_prompt_is_git_repo; then
+    local top
+    top="$(command git rev-parse --show-toplevel 2>/dev/null)"
+    print -r -- "${top:t}"
+  else
+    print -r -- "${PWD:t}"
+  fi
+}
+
+_dt_prompt_exit_indicator() {
+  local code="$1"
+  if [[ "$code" -eq 0 ]]; then
+    print -r -- "✓"
+  else
+    print -r -- "✗${code}"
+  fi
+}
+
+_dt_prompt_state_get_count() {
+  local raw="$(_dt_prompt_read_kv "$_dt_prompt_state" "command_count")"
+  raw="$(_dt_prompt_trim "${raw:-0}")"
+  [[ -n "$raw" ]] || raw="0"
+  print -r -- "$raw"
+}
+
+_dt_prompt_state_set_count() {
+  local count="$1"
+  mkdir -p "$_dt_prompt_dir" >/dev/null 2>&1 || true
+  print -r -- "command_count=${count}" > "$_dt_prompt_state"
+}
+
+_dt_prompt_next_rotation_index() {
+  local count="$1"
+  local every=7
+  local idx=$(( (count / every) ))
+  print -r -- "$idx"
+}
+
+_dt_prompt_mantra_pool=(
+  "Remember God" "Be still" "Trust" "Let go" "Surrender" "Faith over fear"
+  "Be here" "This moment" "Now" "Return to now" "Notice" "Breathe"
+  "Slow down" "Soft focus" "Easy" "Relax" "Unclench" "Gentle effort"
+  "Choose love" "Do the work" "Keep going" "Patience" "Integrity" "Right effort"
+  "One thing" "Simple first" "Clarity" "Craft" "Finish well" "Progress, not perfect"
+)
+
+_dt_prompt_pick_from_pool() {
+  local idx="$1"
+  local size="${#_dt_prompt_mantra_pool[@]}"
+  if [[ "$size" -le 0 ]]; then
+    print -r -- ""
+    return 0
+  fi
+  local pick=$(( idx % size ))
+  print -r -- "${_dt_prompt_mantra_pool[$pick]}"
+}
+
+_dt_prompt_wisdom_pool=(
+  "Do the work. Let go of the rest."
+  "Make it simple. Make it true."
+  "Small steps, done daily."
+  "Finish what you start."
+  "Clarity over clutter."
+)
+
+_dt_prompt_gratitude_pool=( "Today: patience" "Today: gratitude" "Today: calm" "Today: courage" "Today: kindness" )
+_dt_prompt_presence_pool=( "⦿ now" "⦿ breathe" "⦿ soften" "⦿ notice" )
+
+_dt_prompt_pick_simple() {
+  local -a pool=("${(@P)1}")
+  local idx="$2"
+  local size="${#pool[@]}"
+  (( size > 0 )) || { print -r -- ""; return 0; }
+  local pick=$(( idx % size ))
+  print -r -- "${pool[$pick]}"
+}
+
+_dt_prompt_fmt_mmss() {
+  local total="$1"
+  local m=$(( total / 60 ))
+  local s=$(( total % 60 ))
+  printf "%d:%02d" "$m" "$s"
+}
+
+_dt_prompt_render() {
+  local last_code="$1"
+
+  local raw_preset="$(_dt_prompt_read_kv "$_dt_prompt_config" "preset")"
+  local preset="$(_dt_prompt_trim "${raw_preset:-focus}")"
+  [[ -n "$preset" ]] || preset="focus"
+
+  local count="$(_dt_prompt_state_get_count)"
+  local next=$(( count + 1 ))
+  _dt_prompt_state_set_count "$next"
+  local rot="$(_dt_prompt_next_rotation_index "$next")"
+
+  local repo="$(_dt_prompt_repo_or_dir)"
+  local branch=""
+  local dirty=""
+  if _dt_prompt_is_git_repo; then
+    branch="$(_dt_prompt_git_branch)"
+    dirty="$(_dt_prompt_git_dirty)"
+  fi
+  local exit_indicator="$(_dt_prompt_exit_indicator "$last_code")"
+  local prompt_symbol="$"
+
+  local git_part=""
+  if [[ -n "$branch" ]]; then
+    git_part="  ${branch}${dirty}"
+  fi
+
+  local line_tech="${repo}${git_part}  ${exit_indicator}  ${prompt_symbol}"
+
+  # Reminder presets get a dedicated first line.
+  case "$preset" in
+    mantra)
+      local mantra="$(_dt_prompt_pick_from_pool "$rot")"
+      PROMPT="${mantra}"$\'\n\'"${line_tech} "
+      ;;
+    wisdom)
+      local widx=$(( rot % ${#_dt_prompt_wisdom_pool[@]} ))
+      local wisdom="${_dt_prompt_wisdom_pool[$widx]}"
+      PROMPT="${wisdom}"$\'\n\'"${line_tech} "
+      ;;
+    gratitude)
+      local gidx=$(( rot % ${#_dt_prompt_gratitude_pool[@]} ))
+      local g="${_dt_prompt_gratitude_pool[$gidx]}"
+      PROMPT="${g}"$\'\n\'"${line_tech} "
+      ;;
+    presence)
+      local pidx=$(( rot % ${#_dt_prompt_presence_pool[@]} ))
+      local p="${_dt_prompt_presence_pool[$pidx]}"
+      PROMPT="${p}"$\'\n\'"${line_tech} "
+      ;;
+    pomodoro)
+      # Lightweight, per-session timer (SECONDS is a zsh special var).
+      local work=1500
+      local rest=300
+      local cycle=$(( work + rest ))
+      local t=$(( SECONDS % cycle ))
+      local label="work"
+      local remaining=$(( work - t ))
+      if (( t >= work )); then
+        label="break"
+        remaining=$(( cycle - t ))
+      fi
+      local mmss="$(_dt_prompt_fmt_mmss "$remaining")"
+      PROMPT="🍅 ${label} ${mmss}"$\'\n\'"${line_tech} "
+      ;;
+    *)
+      # Tech presets are single-line (compact).
+      PROMPT="${line_tech} "
+      ;;
+  esac
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _dt_prompt_precmd
+_dt_prompt_precmd() { _dt_prompt_render "$?" }
+
+# Ensure prompt subst is enabled for our simple expansions.
+setopt PROMPT_SUBST
+ZSH
+  chmod 0644 "$path"
+}
+
+write_bash_script() {
+  local path
+  path="$(bash_script_path)"
+  cat > "$path" <<'BASH'
+# dt prompt (bash)
+# This file is owned by dt. Changes may be overwritten.
+
+_dt_prompt_home="${HOME:-}"
+_dt_prompt_dir="${_dt_prompt_home}/.dt/prompt"
+_dt_prompt_config="${_dt_prompt_dir}/config"
+_dt_prompt_state="${_dt_prompt_dir}/state"
+
+_dt_prompt_read_kv() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 0
+  awk -F= -v k="$key" '$1==k{print $2; exit}' "$file" 2>/dev/null
+}
+
+_dt_prompt_trim() {
+  local s="$1"
+  s="${s//$'
+'/}"
+  s="$(echo "$s" | sed 's/^ *//; s/ *$//')"
+  printf "%s" "$s"
+}
+
+_dt_prompt_is_git_repo() { git rev-parse --is-inside-work-tree >/dev/null 2>&1; }
+_dt_prompt_git_branch() { git rev-parse --abbrev-ref HEAD 2>/dev/null; }
+_dt_prompt_git_dirty() { git diff --quiet --ignore-submodules -- 2>/dev/null || printf "%s" "*"; }
+
+_dt_prompt_repo_or_dir() {
+  if _dt_prompt_is_git_repo; then
+    local top
+    top="$(git rev-parse --show-toplevel 2>/dev/null)"
+    basename "$top"
+  else
+    basename "$PWD"
+  fi
+}
+
+_dt_prompt_exit_indicator() {
+  local code="$1"
+  if [[ "$code" -eq 0 ]]; then
+    printf "✓"
+  else
+    printf "✗%s" "$code"
+  fi
+}
+
+_dt_prompt_state_get_count() {
+  local raw="$(_dt_prompt_read_kv "$_dt_prompt_state" "command_count")"
+  raw="$(_dt_prompt_trim "${raw:-0}")"
+  [[ -n "$raw" ]] || raw="0"
+  printf "%s" "$raw"
+}
+
+_dt_prompt_state_set_count() {
+  local count="$1"
+  mkdir -p "$_dt_prompt_dir" >/dev/null 2>&1 || true
+  printf "command_count=%s
+" "$count" > "$_dt_prompt_state"
+}
+
+_dt_prompt_next_rotation_index() {
+  local count="$1"
+  local every=7
+  printf "%s" "$(( count / every ))"
+}
+
+_dt_prompt_mantra_pool=(
+  "Remember God" "Be still" "Trust" "Let go" "Surrender" "Faith over fear"
+  "Be here" "This moment" "Now" "Return to now" "Notice" "Breathe"
+  "Slow down" "Soft focus" "Easy" "Relax" "Unclench" "Gentle effort"
+  "Choose love" "Do the work" "Keep going" "Patience" "Integrity" "Right effort"
+  "One thing" "Simple first" "Clarity" "Craft" "Finish well" "Progress, not perfect"
+)
+
+_dt_prompt_pick_from_pool() {
+  local idx="$1"
+  local size="${#_dt_prompt_mantra_pool[@]}"
+  if [[ "$size" -le 0 ]]; then
+    printf "%s" ""
+    return 0
+  fi
+  local pick=$(( idx % size ))
+  printf "%s" "${_dt_prompt_mantra_pool[$pick]}"
+}
+
+_dt_prompt_wisdom_pool=(
+  "Do the work. Let go of the rest."
+  "Make it simple. Make it true."
+  "Small steps, done daily."
+  "Finish what you start."
+  "Clarity over clutter."
+)
+_dt_prompt_gratitude_pool=( "Today: patience" "Today: gratitude" "Today: calm" "Today: courage" "Today: kindness" )
+_dt_prompt_presence_pool=( "⦿ now" "⦿ breathe" "⦿ soften" "⦿ notice" )
+
+_dt_prompt_fmt_mmss() {
+  local total="$1"
+  local m=$(( total / 60 ))
+  local s=$(( total % 60 ))
+  printf "%d:%02d" "$m" "$s"
+}
+
+_dt_prompt_render() {
+  local last_code="$1"
+
+  local raw_preset="$(_dt_prompt_read_kv "$_dt_prompt_config" "preset")"
+  local preset="$(_dt_prompt_trim "${raw_preset:-focus}")"
+  [[ -n "$preset" ]] || preset="focus"
+
+  local count="$(_dt_prompt_state_get_count)"
+  local next=$(( count + 1 ))
+  _dt_prompt_state_set_count "$next"
+  local rot="$(_dt_prompt_next_rotation_index "$next")"
+
+  local repo="$(_dt_prompt_repo_or_dir)"
+  local branch=""
+  local dirty=""
+  if _dt_prompt_is_git_repo; then
+    branch="$(_dt_prompt_git_branch)"
+    dirty="$(_dt_prompt_git_dirty)"
+  fi
+  local exit_indicator="$(_dt_prompt_exit_indicator "$last_code")"
+  local prompt_symbol="$"
+
+  local git_part=""
+  if [[ -n "$branch" ]]; then
+    git_part="  ${branch}${dirty}"
+  fi
+
+  local line_tech="${repo}${git_part}  ${exit_indicator}  ${prompt_symbol}"
+
+  case "$preset" in
+    mantra)
+      local mantra="$(_dt_prompt_pick_from_pool "$rot")"
+      PS1="${mantra}
+${line_tech} "
+      ;;
+    wisdom)
+      local widx=$(( rot % ${#_dt_prompt_wisdom_pool[@]} ))
+      PS1="${_dt_prompt_wisdom_pool[$widx]}
+${line_tech} "
+      ;;
+    gratitude)
+      local gidx=$(( rot % ${#_dt_prompt_gratitude_pool[@]} ))
+      PS1="${_dt_prompt_gratitude_pool[$gidx]}
+${line_tech} "
+      ;;
+    presence)
+      local pidx=$(( rot % ${#_dt_prompt_presence_pool[@]} ))
+      PS1="${_dt_prompt_presence_pool[$pidx]}
+${line_tech} "
+      ;;
+    pomodoro)
+      local work=1500
+      local rest=300
+      local cycle=$(( work + rest ))
+      local t=$(( SECONDS % cycle ))
+      local label="work"
+      local remaining=$(( work - t ))
+      if (( t >= work )); then
+        label="break"
+        remaining=$(( cycle - t ))
+      fi
+      local mmss="$(_dt_prompt_fmt_mmss "$remaining")"
+      PS1="🍅 ${label} ${mmss}
+${line_tech} "
+      ;;
+    *)
+      PS1="${line_tech} "
+      ;;
+  esac
+}
+
+_dt_prompt_prompt_command() {
+  local code="$?"
+  _dt_prompt_render "$code"
+}
+
+PROMPT_COMMAND="_dt_prompt_prompt_command"
+BASH
+  chmod 0644 "$path"
+}
+
+# --- entrypoint ---
+main "$@"
