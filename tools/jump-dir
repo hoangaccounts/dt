@@ -1,0 +1,731 @@
+#!/usr/bin/env bash
+# VERSION: 0.0.7
+# SUMMARY: Create directory shortcuts and jump to them via a shell function (jd).
+# TAGS: shell, env
+# SAFETY: confirm
+# ALIASES: jd
+# SYNOPSIS: dt jump-dir
+#   dt jd
+#   dt jump-dir add <name> <path>
+#   dt jump-dir add-here <name>
+#   dt jump-dir rm <name>
+#   dt jump-dir list
+#   dt jump-dir path <name>[/subpath]
+#   dt jump-dir install [--yes]
+#   dt jump-dir uninstall [--yes]
+#   dt jump-dir status
+# DESCRIPTION:
+#   Manage a simple name->path mapping file and (optionally) install a small shell
+#   integration script that defines two functions: `jd` and `jump-dir`.
+#
+#   This tool installs shell-specific integration:
+#     - zsh:  ~/.dt/jump-dir/jump-dir.zsh (sourced by ~/.zshrc)
+#     - bash: ~/.dt/jump-dir/jump-dir.bash (sourced by ~/.bashrc / ~/.bash_profile)
+#
+#   After install, run:
+#     jd gs
+#     jd gs/app
+#
+#   Safety: install/uninstall only adds/removes a dt-owned marker block.
+# OPTIONS:
+#   --yes      Skip confirmation prompt for install/uninstall.
+# OUTPUT:
+#   Writes:
+#     ~/.dt/jump-dir/aliases
+#     ~/.dt/jump-dir/jump-dir.zsh
+#     ~/.dt/jump-dir/jump-dir.bash
+#   Modifies (install/uninstall only):
+#     ~/.zshrc, ~/.bashrc, ~/.bash_profile (adds/removes a dt-owned source block)
+# DEPS: awk, grep, mkdir, mv, rm, sed
+### END HELP
+
+set -euo pipefail
+
+readonly TOOL_ID="jump-dir"
+readonly DT_DIR_RELATIVE_PATH=".dt/jump-dir"
+readonly ALIASES_FILE_NAME="aliases"
+readonly ZSH_SCRIPT_NAME="jump-dir.zsh"
+readonly BASH_SCRIPT_NAME="jump-dir.bash"
+readonly MARKER_START="# dt:jump-dir start"
+readonly MARKER_END="# dt:jump-dir end"
+
+main() {
+  local subcommand="${1:-}"
+  shift || true
+
+  case "$subcommand" in
+    ""|-h|--help|help) print_help ;;
+    add) add_alias "$@" ;;
+    add-here) add_here "$@" ;;
+    rm|remove) remove_alias "$@" ;;
+    list) list_aliases ;;
+    path) print_resolved_path "$@" ;;
+    install) install_integration "$@" ;;
+    uninstall) uninstall_integration "$@" ;;
+    status) print_status ;;
+    *)
+      echo "Unknown subcommand: $subcommand" >&2
+      echo >&2
+      print_help >&2
+      exit 2
+      ;;
+  esac
+}
+
+print_help() {
+  awk '
+    NR==1 && $0 ~ /^#!/ { next }
+    $0 ~ /^### END HELP$/ { exit }
+    $0 ~ /^#/ {
+      sub(/^# ?/, "", $0)
+      print
+      next
+    }
+  ' "$0"
+}
+
+home_dir() {
+  if [[ -n "${HOME:-}" ]]; then
+    printf "%s" "$HOME"
+    return 0
+  fi
+  printf "%s" "$(cd ~ && pwd)"
+}
+
+dt_dir() {
+  local home
+  home="$(home_dir)"
+  printf "%s/%s" "$home" "$DT_DIR_RELATIVE_PATH"
+}
+
+aliases_file_path() {
+  printf "%s/%s" "$(dt_dir)" "$ALIASES_FILE_NAME"
+}
+
+zsh_script_path() {
+  printf "%s/%s" "$(dt_dir)" "$ZSH_SCRIPT_NAME"
+}
+
+bash_script_path() {
+  printf "%s/%s" "$(dt_dir)" "$BASH_SCRIPT_NAME"
+}
+
+ensure_dt_dir() {
+  mkdir -p "$(dt_dir)"
+}
+
+ensure_aliases_file() {
+  ensure_dt_dir
+  local file
+  file="$(aliases_file_path)"
+  if [[ ! -f "$file" ]]; then
+    : >"$file"
+  fi
+}
+
+is_valid_name() {
+  local name="$1"
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]
+}
+
+normalize_path() {
+  local p="$1"
+  if [[ "$p" == "~" ]]; then
+    printf "%s" "$(home_dir)"
+    return 0
+  fi
+  if [[ "$p" == "~/"* ]]; then
+    printf "%s/%s" "$(home_dir)" "${p#~/}"
+    return 0
+  fi
+  printf "%s" "$p"
+}
+
+add_alias() {
+  local name="${1:-}"
+  local raw_path="${2:-}"
+
+  if [[ -z "$name" || -z "$raw_path" ]]; then
+    echo "Usage: dt $TOOL_ID add <name> <path>" >&2
+    exit 2
+  fi
+  if ! is_valid_name "$name"; then
+    echo "Invalid name: $name" >&2
+    echo "Names must match: [A-Za-z0-9][A-Za-z0-9_-]*" >&2
+    exit 2
+  fi
+
+  local resolved
+  resolved="$(normalize_path "$raw_path")"
+
+  ensure_aliases_file
+  upsert_alias "$name" "$resolved"
+  echo "Saved: $name -> $resolved"
+}
+
+add_here() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Usage: dt $TOOL_ID add-here <name>" >&2
+    exit 2
+  fi
+  add_alias "$name" "$(pwd)"
+}
+
+remove_alias() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Usage: dt $TOOL_ID rm <name>" >&2
+    exit 2
+  fi
+
+  ensure_aliases_file
+  if ! alias_exists "$name"; then
+    echo "Not found: $name" >&2
+    exit 1
+  fi
+
+  delete_alias "$name"
+  echo "Removed: $name"
+}
+
+list_aliases() {
+  ensure_aliases_file
+  local file
+  file="$(aliases_file_path)"
+
+  if [[ ! -s "$file" ]]; then
+    echo "(no aliases)"
+    return 0
+  fi
+
+  awk '
+    BEGIN { OFS="\t" }
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      if (index($0, "\t") > 0) {
+        split($0, parts, "\t")
+        k = parts[1]
+        v = substr($0, length(k) + 2)
+        print k, v
+        next
+      }
+      k = $1
+      $1 = ""
+      sub(/^[[:space:]]+/, "", $0)
+      print k, $0
+    }
+  ' "$file"
+}
+
+upsert_alias() {
+  local name="$1"
+  local resolved="$2"
+  local file
+  file="$(aliases_file_path)"
+  local tmp="${file}.dt_tmp"
+
+  awk -v NAME="$name" -v VALUE="$resolved" '
+    BEGIN { updated = 0 }
+    /^[[:space:]]*#/ { print; next }
+    /^[[:space:]]*$/ { print; next }
+    {
+      line = $0
+      key = ""
+      if (index(line, "\t") > 0) {
+        key = substr(line, 1, index(line, "\t") - 1)
+      } else {
+        split(line, parts, /[[:space:]]+/)
+        key = parts[1]
+      }
+
+      if (key == NAME) {
+        print NAME "\t" VALUE
+        updated = 1
+        next
+      }
+
+      print line
+    }
+    END {
+      if (updated == 0) {
+        print NAME "\t" VALUE
+      }
+    }
+  ' "$file" >"$tmp"
+
+  mv "$tmp" "$file"
+}
+
+alias_exists() {
+  local name="$1"
+  local file
+  file="$(aliases_file_path)"
+  grep -E "^[[:space:]]*${name}([[:space:]]|\t)" "$file" >/dev/null 2>&1
+}
+
+delete_alias() {
+  local name="$1"
+  local file
+  file="$(aliases_file_path)"
+  local tmp="${file}.dt_tmp"
+
+  awk -v NAME="$name" '
+    /^[[:space:]]*#/ { print; next }
+    /^[[:space:]]*$/ { print; next }
+    {
+      line = $0
+      key = ""
+      if (index(line, "\t") > 0) {
+        key = substr(line, 1, index(line, "\t") - 1)
+      } else {
+        split(line, parts, /[[:space:]]+/)
+        key = parts[1]
+      }
+      if (key == NAME) { next }
+      print line
+    }
+  ' "$file" >"$tmp"
+
+  mv "$tmp" "$file"
+}
+
+split_name_and_suffix() {
+  local input="$1"
+  local name suffix
+  name="${input%%/*}"
+  suffix=""
+  if [[ "$input" == */* ]]; then
+    suffix="${input#*/}"
+  fi
+  printf "%s\n%s" "$name" "$suffix"
+}
+
+resolve_path_for_key() {
+  local key="$1"
+  local file
+  file="$(aliases_file_path)"
+
+  awk -v KEY="$key" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      line = $0
+      k = ""
+      v = ""
+      if (index(line, "\t") > 0) {
+        k = substr(line, 1, index(line, "\t") - 1)
+        v = substr(line, index(line, "\t") + 1)
+      } else {
+        split(line, parts, /[[:space:]]+/)
+        k = parts[1]
+        v = line
+        sub(/^[^[:space:]]+[[:space:]]+/, "", v)
+      }
+      if (k == KEY) { print v; exit 0 }
+    }
+  ' "$file"
+}
+
+print_resolved_path() {
+  local spec="${1:-}"
+  if [[ -z "$spec" ]]; then
+    echo "Usage: dt $TOOL_ID path <name>[/subpath]" >&2
+    exit 2
+  fi
+
+  ensure_aliases_file
+
+  local name suffix
+  local split
+  split="$(split_name_and_suffix "$spec")"
+  name="$(printf "%s" "$split" | sed -n '1p')"
+  suffix="$(printf "%s" "$split" | sed -n '2p')"
+
+  local base
+  base="$(resolve_path_for_key "$name")"
+  if [[ -z "$base" ]]; then
+    echo "Unknown shortcut: $name" >&2
+    echo "Run: dt $TOOL_ID list" >&2
+    exit 1
+  fi
+
+  if [[ -n "$suffix" ]]; then
+    printf "%s/%s\n" "$base" "$suffix"
+    return 0
+  fi
+
+  printf "%s\n" "$base"
+}
+
+require_confirmation_or_yes() {
+  local maybe_yes="${1:-}"
+  if [[ "$maybe_yes" == "--yes" ]]; then
+    return 0
+  fi
+
+  echo "This will modify:"
+  echo "  - \$HOME/${DT_DIR_RELATIVE_PATH}/${ALIASES_FILE_NAME} (create if missing)"
+  echo "  - \$HOME/${DT_DIR_RELATIVE_PATH}/${ZSH_SCRIPT_NAME} (write/update)"
+  echo "  - \$HOME/${DT_DIR_RELATIVE_PATH}/${BASH_SCRIPT_NAME} (write/update)"
+  echo "  - Shell rc file(s): \$HOME/.zshrc / .bashrc / .bash_profile (add/remove a dt-owned source block)"
+  echo
+  printf "Continue? [y/N] "
+  local answer=""
+  IFS= read -r answer
+  case "$answer" in
+    y|Y|yes|YES) return 0 ;;
+    *) echo "Canceled."; exit 0 ;;
+  esac
+}
+
+write_zsh_script() {
+  local out
+  out="$(zsh_script_path)"
+
+  cat >"$out" <<'EOF'
+# dt jump-dir zsh integration (generated)
+# Provides: jd, jump-dir
+
+_dt_jump_dir_aliases_file() {
+  print -r -- "${HOME}/.dt/jump-dir/aliases"
+}
+
+_dt_jump_dir_resolve_base() {
+  typeset key="${1}"
+  typeset file="$(_dt_jump_dir_aliases_file)"
+  [[ -f "${file}" ]] || return 1
+
+  typeset line aliasName aliasPath
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    [[ "${line}" == \#* ]] && continue
+
+    aliasName=""
+    aliasPath=""
+
+    if [[ "${line}" == *$'\t'* ]]; then
+      aliasName="${line%%$'\t'*}"
+      aliasPath="${line#*$'\t'}"
+    else
+      aliasName="${line%%[[:space:]]*}"
+      aliasPath="${line#${aliasName}}"
+      aliasPath="${aliasPath##[[:space:]]#}"
+    fi
+
+    if [[ "${aliasName}" == "${key}" ]]; then
+      print -r -- "${aliasPath}"
+      return 0
+    fi
+  done <"${file}"
+
+  return 1
+}
+
+_dt_jump_dir_suggest() {
+  typeset prefix="${1}"
+  typeset file="$(_dt_jump_dir_aliases_file)"
+  [[ -f "${file}" ]] || return 0
+
+  typeset line aliasName any=0
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    [[ "${line}" == \#* ]] && continue
+
+    if [[ "${line}" == *$'\t'* ]]; then
+      aliasName="${line%%$'\t'*}"
+    else
+      aliasName="${line%%[[:space:]]*}"
+    fi
+
+    if [[ "${aliasName}" == ${prefix}* ]]; then
+      if [[ "${any}" -eq 0 ]]; then
+        print -ru2 -- "Did you mean:"
+        any=1
+      fi
+      print -ru2 -- "  ${aliasName}"
+    fi
+  done <"${file}"
+}
+
+_dt_jump_dir_jump() {
+  typeset spec="${1}"
+  if [[ -z "${spec}" ]]; then
+    print -ru2 -- "Usage: jd <name>[/subpath]"
+    return 2
+  fi
+
+  typeset aliasKey="${spec%%/*}"
+  typeset suffix=""
+  [[ "${spec}" == */* ]] && suffix="${spec#*/}"
+
+  typeset base
+  base="$(_dt_jump_dir_resolve_base "${aliasKey}")" || {
+    print -ru2 -- "Unknown shortcut: ${aliasKey}"
+    print -ru2 -- "Tip: dt jump-dir add-here ${aliasKey}"
+    _dt_jump_dir_suggest "${aliasKey}" || true
+    return 1
+  }
+
+  typeset target="${base}"
+  [[ -n "${suffix}" ]] && target="${base}/${suffix}"
+
+  builtin cd "${target}"
+}
+
+jd() { _dt_jump_dir_jump "${1:-}"; }
+jump-dir() { _dt_jump_dir_jump "${1:-}"; }
+EOF
+}
+
+write_bash_script() {
+  local out
+  out="$(bash_script_path)"
+
+  cat >"$out" <<'EOF'
+# dt jump-dir bash integration (generated)
+# Provides: jd, jump-dir
+
+_dt_jump_dir_aliases_file() {
+  printf "%s" "${HOME}/.dt/jump-dir/aliases"
+}
+
+_dt_jump_dir_trim_leading_space() {
+  echo "$1" | sed 's/^[[:space:]]*//'
+}
+
+_dt_jump_dir_resolve_base() {
+  key="$1"
+  file="$(_dt_jump_dir_aliases_file)"
+  [ -f "$file" ] || return 1
+
+  line=""
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in \#*) continue ;; esac
+
+    aliasName=""
+    aliasPath=""
+
+    case "$line" in
+      *$'\t'*)
+        aliasName="${line%%$'\t'*}"
+        aliasPath="${line#*$'\t'}"
+        ;;
+      *)
+        aliasName="${line%%[[:space:]]*}"
+        aliasPath="${line#"$aliasName"}"
+        aliasPath="$(_dt_jump_dir_trim_leading_space "$aliasPath")"
+        ;;
+    esac
+
+    if [ "$aliasName" = "$key" ]; then
+      printf "%s" "$aliasPath"
+      return 0
+    fi
+  done <"$file"
+
+  return 1
+}
+
+_dt_jump_dir_suggest() {
+  prefix="$1"
+  file="$(_dt_jump_dir_aliases_file)"
+  [ -f "$file" ] || return 0
+
+  line=""
+  any=0
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in \#*) continue ;; esac
+
+    aliasName=""
+    case "$line" in
+      *$'\t'*) aliasName="${line%%$'\t'*}" ;;
+      *)       aliasName="${line%%[[:space:]]*}" ;;
+    esac
+
+    case "$aliasName" in
+      "$prefix"*)
+        if [ "$any" -eq 0 ]; then
+          echo "Did you mean:" >&2
+          any=1
+        fi
+        echo "  $aliasName" >&2
+        ;;
+    esac
+  done <"$file"
+}
+
+_dt_jump_dir_jump() {
+  spec="$1"
+  if [ -z "$spec" ]; then
+    echo "Usage: jd <name>[/subpath]" >&2
+    return 2
+  fi
+
+  aliasKey="${spec%%/*}"
+  suffix=""
+  case "$spec" in */*) suffix="${spec#*/}" ;; esac
+
+  base="$(_dt_jump_dir_resolve_base "$aliasKey")" || {
+    echo "Unknown shortcut: $aliasKey" >&2
+    echo "Tip: dt jump-dir add-here $aliasKey" >&2
+    _dt_jump_dir_suggest "$aliasKey" || true
+    return 1
+  }
+
+  target="$base"
+  [ -n "$suffix" ] && target="$base/$suffix"
+
+  builtin cd "$target"
+}
+
+jd() { _dt_jump_dir_jump "${1:-}"; }
+jump-dir() { _dt_jump_dir_jump "${1:-}"; }
+EOF
+}
+
+rc_candidates() {
+  local home
+  home="$(home_dir)"
+
+  local list=""
+  [[ -f "$home/.zshrc" ]] && list="$list $home/.zshrc"
+  [[ -f "$home/.bashrc" ]] && list="$list $home/.bashrc"
+  [[ -f "$home/.bash_profile" ]] && list="$list $home/.bash_profile"
+
+  if [[ -n "$list" ]]; then
+    echo "$list" | sed 's/^ *//'
+    return 0
+  fi
+
+  case "${SHELL:-}" in
+    */zsh) echo "$home/.zshrc" ;;
+    *) echo "$home/.bashrc" ;;
+  esac
+}
+
+rc_has_block() {
+  local rc_file="$1"
+  grep -Fq "$MARKER_START" "$rc_file" 2>/dev/null && grep -Fq "$MARKER_END" "$rc_file" 2>/dev/null
+}
+
+append_block_to_rc() {
+  local rc_file="$1"
+
+  [[ -f "$rc_file" ]] || : >"$rc_file"
+  rc_has_block "$rc_file" && return 0
+
+  if [[ "$rc_file" == */.zshrc ]]; then
+    cat >>"$rc_file" <<EOF
+
+$MARKER_START
+source "\$HOME/${DT_DIR_RELATIVE_PATH}/${ZSH_SCRIPT_NAME}"
+$MARKER_END
+EOF
+  else
+    cat >>"$rc_file" <<EOF
+
+$MARKER_START
+# shellcheck disable=SC1090
+source "\$HOME/${DT_DIR_RELATIVE_PATH}/${BASH_SCRIPT_NAME}"
+$MARKER_END
+EOF
+  fi
+}
+
+remove_block_from_rc() {
+  local rc_file="$1"
+  [[ -f "$rc_file" ]] || return 0
+
+  local tmp="${rc_file}.dt_tmp"
+
+  awk -v START_MARK="$MARKER_START" -v END_MARK="$MARKER_END" '
+    BEGIN { skipping = 0 }
+    {
+      if ($0 == START_MARK) { skipping = 1; next }
+      if (skipping == 1 && $0 == END_MARK) { skipping = 0; next }
+      if (skipping == 1) { next }
+      print
+    }
+  ' "$rc_file" >"$tmp"
+
+  mv "$tmp" "$rc_file"
+}
+
+install_integration() {
+  local maybe_yes="${1:-}"
+  require_confirmation_or_yes "$maybe_yes"
+
+  ensure_aliases_file
+  write_zsh_script
+  write_bash_script
+
+  local rc_files
+  rc_files="$(rc_candidates)"
+  local rc=""
+  for rc in $rc_files; do
+    append_block_to_rc "$rc"
+  done
+
+  echo "Installed shell integration:"
+  echo "  Zsh:     $(zsh_script_path)"
+  echo "  Bash:    $(bash_script_path)"
+  echo "  Aliases: $(aliases_file_path)"
+  echo "  RC:      $rc_files"
+  echo
+  echo "Next:"
+  echo "  source '${rc_files%% *}'"
+  echo "  jd <name>"
+}
+
+uninstall_integration() {
+  local maybe_yes="${1:-}"
+  require_confirmation_or_yes "$maybe_yes"
+
+  local rc_files
+  rc_files="$(rc_candidates)"
+  local rc=""
+  for rc in $rc_files; do
+    remove_block_from_rc "$rc"
+  done
+
+  local zsh_file bash_file
+  zsh_file="$(zsh_script_path)"
+  bash_file="$(bash_script_path)"
+
+  [[ -f "$zsh_file" ]] && rm -f "$zsh_file"
+  [[ -f "$bash_file" ]] && rm -f "$bash_file"
+
+  echo "Uninstalled shell integration:"
+  echo "  Removed dt block from: $rc_files"
+  echo "  Deleted:              $zsh_file"
+  echo "  Deleted:              $bash_file"
+}
+
+print_status() {
+  local aliases zsh_file bash_file
+  aliases="$(aliases_file_path)"
+  zsh_file="$(zsh_script_path)"
+  bash_file="$(bash_script_path)"
+
+  local rc_files
+  rc_files="$(rc_candidates)"
+
+  local any_installed="no"
+  local rc=""
+  for rc in $rc_files; do
+    if rc_has_block "$rc"; then any_installed="yes"; fi
+  done
+
+  echo "Tool:      $TOOL_ID"
+  echo "Aliases:   $aliases"
+  echo "Zsh file:  $zsh_file"
+  echo "Bash file: $bash_file"
+  echo "RC files:  $rc_files"
+  echo "Installed: $any_installed"
+}
+
+main "$@"
