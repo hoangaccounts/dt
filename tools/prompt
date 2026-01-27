@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VERSION: 0.1.0
+# VERSION: 0.1.1
 # SUMMARY: Install a safe, preset-based shell prompt with optional mindful reminders.
 # TAGS: shell, env
 # SAFETY: confirm
@@ -341,8 +341,9 @@ _dt_prompt_read_kv() {
 
 _dt_prompt_trim() {
   local s="$1"
-  s="${s//$'
-'/}"
+  # Remove CRs (common when files were written with CRLF). Config values
+  # should be single-line, so this keeps behavior predictable across editors.
+  s="${s//$'\r'/}"
   # trim leading
   s="${s#"${s%%[![:space:]]*}"}"
   # trim trailing
@@ -468,26 +469,26 @@ _dt_prompt_render() {
 
   local line_tech="${repo}${git_part}  ${exit_indicator}  ${prompt_symbol}"
 
-  # Reminder presets get a dedicated first line.
+  # All presets are single-line (compact).
   case "$preset" in
     mantra)
       local mantra="$(_dt_prompt_pick_from_pool "$rot")"
-      PROMPT="${mantra}"$\'\n\'"${line_tech} "
+      PROMPT="${mantra}  ${line_tech} "
       ;;
     wisdom)
       local widx=$(( rot % ${#_dt_prompt_wisdom_pool[@]} ))
       local wisdom="${_dt_prompt_wisdom_pool[$widx]}"
-      PROMPT="${wisdom}"$\'\n\'"${line_tech} "
+      PROMPT="${wisdom}  ${line_tech} "
       ;;
     gratitude)
       local gidx=$(( rot % ${#_dt_prompt_gratitude_pool[@]} ))
       local g="${_dt_prompt_gratitude_pool[$gidx]}"
-      PROMPT="${g}"$\'\n\'"${line_tech} "
+      PROMPT="${g}  ${line_tech} "
       ;;
     presence)
       local pidx=$(( rot % ${#_dt_prompt_presence_pool[@]} ))
       local p="${_dt_prompt_presence_pool[$pidx]}"
-      PROMPT="${p}"$\'\n\'"${line_tech} "
+      PROMPT="${p}  ${line_tech} "
       ;;
     pomodoro)
       # Lightweight, per-session timer (SECONDS is a zsh special var).
@@ -502,13 +503,18 @@ _dt_prompt_render() {
         remaining=$(( cycle - t ))
       fi
       local mmss="$(_dt_prompt_fmt_mmss "$remaining")"
-      PROMPT="🍅 ${label} ${mmss}"$\'\n\'"${line_tech} "
+      PROMPT="🍅 ${label} ${mmss}  ${line_tech} "
       ;;
     *)
       # Tech presets are single-line (compact).
       PROMPT="${line_tech} "
       ;;
   esac
+
+  # Defensive: if an old script ever injected a literal $'n' or $'\n' into PROMPT,
+  # strip it so the prompt stays usable.
+  PROMPT="${PROMPT//\$\'n\'/}"
+  PROMPT="${PROMPT//\$\'\\n\'/}"
 }
 
 autoload -Uz add-zsh-hook
@@ -542,8 +548,8 @@ _dt_prompt_read_kv() {
 
 _dt_prompt_trim() {
   local s="$1"
-  s="${s//$'
-'/}"
+  # Remove CRs (common when files were written with CRLF).
+  s="${s//$'\r'/}"
   s="$(echo "$s" | sed 's/^ *//; s/ *$//')"
   printf "%s" "$s"
 }
@@ -659,23 +665,19 @@ _dt_prompt_render() {
   case "$preset" in
     mantra)
       local mantra="$(_dt_prompt_pick_from_pool "$rot")"
-      PS1="${mantra}
-${line_tech} "
+      PS1="${mantra}  ${line_tech} "
       ;;
     wisdom)
       local widx=$(( rot % ${#_dt_prompt_wisdom_pool[@]} ))
-      PS1="${_dt_prompt_wisdom_pool[$widx]}
-${line_tech} "
+      PS1="${_dt_prompt_wisdom_pool[$widx]}  ${line_tech} "
       ;;
     gratitude)
       local gidx=$(( rot % ${#_dt_prompt_gratitude_pool[@]} ))
-      PS1="${_dt_prompt_gratitude_pool[$gidx]}
-${line_tech} "
+      PS1="${_dt_prompt_gratitude_pool[$gidx]}  ${line_tech} "
       ;;
     presence)
       local pidx=$(( rot % ${#_dt_prompt_presence_pool[@]} ))
-      PS1="${_dt_prompt_presence_pool[$pidx]}
-${line_tech} "
+      PS1="${_dt_prompt_presence_pool[$pidx]}  ${line_tech} "
       ;;
     pomodoro)
       local work=1500
@@ -689,8 +691,7 @@ ${line_tech} "
         remaining=$(( cycle - t ))
       fi
       local mmss="$(_dt_prompt_fmt_mmss "$remaining")"
-      PS1="🍅 ${label} ${mmss}
-${line_tech} "
+      PS1="🍅 ${label} ${mmss}  ${line_tech} "
       ;;
     *)
       PS1="${line_tech} "
