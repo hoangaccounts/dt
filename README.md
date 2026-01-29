@@ -72,6 +72,24 @@ dt git-aliases list
 dt git-aliases install
 ```
 
+### jump-dir
+
+Bookmark and jump to frequently used directories.
+
+```bash
+# List saved directories
+dt jump-dir list
+
+# Add the current directory (or a path) under a name
+dt jump-dir add work .
+dt jump-dir add gs ~/dev/goodstocks-android
+
+# Jump to a saved directory
+dt jump-dir go work
+```
+
+Saved directories persist across shells and machines (once dt is installed).
+
 ### prompt
 
 Install and manage a git-aware shell prompt with optional themes.
