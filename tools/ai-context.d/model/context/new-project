@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# model/context/new-project - New project context generation
+#
+# Responsibility: Build markdown content for new projects
+# Dependencies: None (pure business logic)
+
+build_new_project_context() {
+  local project_name=$1
+  local project_type=$2
+  local project_size=$3
+  local features=$4
+  local foundation=$5
+  local version=${6:-"0.0.1"}
+  
+  local content=""
+  
+  # Header with metadata
+  content+="# AI Context: $project_name"
+  content+=$'\n\n'
+  content+="**Last Updated:** $(date '+%Y-%m-%d %H:%M:%S')"
+  content+=$'\n'
+  content+="**Tool:** dt ai-context v$version"
+  content+=$'\n'
+  content+="**Mode:** NEW PROJECT"
+  content+=$'\n\n'
+  content+="## Project Info"
+  content+=$'\n\n'
+  content+="- **Type:** $project_type"
+  content+=$'\n'
+  content+="- **Size:** $project_size"
+  content+=$'\n'
+  
+  if [[ -n "$features" ]]; then
+    content+="- **Features:** $features"
+    content+=$'\n'
+  fi
+  
+  content+=$'\n---\n\n'
+  
+  # Foundation
+  content+="# Context Library"
+  content+=$'\n\n'
+  content+="$foundation"
+  content+=$'\n---\n\n'
+  
+  # Project context
+  content+="# Project Context"
+  content+=$'\n\n'
+  
+  # Instructions
+  content+="## Instructions for AI Assistant"
+  content+=$'\n\n'
+  content+="This is a **NEW PROJECT** - establish patterns and architecture from scratch."
+  content+=$'\n\n### Your Role\n\n'
+  content+="- Help establish clean architecture and best practices"
+  content+=$'\n'
+  content+="- Suggest appropriate patterns for the project scope and type"
+  content+=$'\n'
+  content+="- Create high-quality, well-tested code from the start"
+  content+=$'\n'
+  content+="- Set up proper project structure and conventions"
+  content+=$'\n\n### Approach\n\n'
+  content+="1. **Architecture First:** Recommend architecture based on scope and features"
+  content+=$'\n'
+  content+="2. **Quality Built-In:** Apply SOLID principles, clean code standards from foundation"
+  content+=$'\n'
+  content+="3. **Testing:** Set up TDD workflow and test infrastructure"
+  content+=$'\n'
+  content+="4. **Conventions:** Establish naming, structure, and code style early"
+  content+=$'\n\n'
+  
+  # Size-based recommendations
+  case "$project_size" in
+    small)
+      content+="### Architecture Recommendations (Small/MVP)"
+      content+=$'\n\n'
+      content+="- Keep it simple - avoid over-engineering"
+      content+=$'\n'
+      content+="- Single module/package structure acceptable"
+      content+=$'\n'
+      content+="- Focus on delivering value quickly"
+      content+=$'\n'
+      content+="- Can use simpler patterns (no need for full Clean Architecture)"
+      content+=$'\n'
+      content+="- Still maintain good code quality and basic tests"
+      content+=$'\n\n'
+      ;;
+    medium)
+      content+="### Architecture Recommendations (Medium/Production)"
+      content+=$'\n\n'
+      content+="- Apply Clean Architecture with clear layers"
+      content+=$'\n'
+      content+="- Separate domain/data/presentation concerns"
+      content+=$'\n'
+      content+="- Dependency injection for testability"
+      content+=$'\n'
+      content+="- Comprehensive test coverage (unit + integration)"
+      content+=$'\n'
+      content+="- Consider scalability and maintainability"
+      content+=$'\n\n'
+      ;;
+    large)
+      content+="### Architecture Recommendations (Large/Enterprise)"
+      content+=$'\n\n'
+      content+="- Full Clean Architecture with DDD tactical patterns"
+      content+=$'\n'
+      content+="- Multi-module/multi-package structure"
+      content+=$'\n'
+      content+="- Strategic DDD for bounded contexts"
+      content+=$'\n'
+      content+="- Extensive testing at all levels"
+      content+=$'\n'
+      content+="- Production-ready from day one (observability, resilience)"
+      content+=$'\n'
+      content+="- Team collaboration and code review processes"
+      content+=$'\n\n'
+      ;;
+  esac
+  
+  # Initial questions
+  content+="### Initial Questions to Discuss"
+  content+=$'\n\n'
+  content+="Before starting implementation, let's align on:"
+  content+=$'\n\n'
+  content+="1. **Architecture:** Confirm architecture approach for $project_size project"
+  content+=$'\n'
+  content+="2. **Tech Stack:** What specific technologies, frameworks, libraries?"
+  content+=$'\n'
+  content+="3. **Project Structure:** Preferred directory/package organization"
+  content+=$'\n'
+  content+="4. **Testing Strategy:** Unit/integration/e2e test approach"
+  content+=$'\n'
+  content+="5. **Development Workflow:** Git flow, CI/CD, deployment strategy"
+  content+=$'\n\n'
+  
+  echo "$content"
+}

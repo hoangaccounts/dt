@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# ui/fs-utils - Filesystem utilities
+#
+# Responsibility: Filename sanitization and timestamp generation
+# Dependencies: None
+
+sanitize_filename() {
+  local name=$1
+  echo "$name" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/-$//' | sed 's/^-//'
+}
+
+generate_timestamp() {
+  if [[ -n "${DT_TIMESTAMP:-}" ]]; then
+    echo "$DT_TIMESTAMP"
+  else
+    date +%Y%m%d-%H%M%S
+  fi
+}

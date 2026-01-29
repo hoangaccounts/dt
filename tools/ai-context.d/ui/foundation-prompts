@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# ui/foundation-prompts - Foundation inclusion prompts
+#
+# Responsibility: Ask user which foundation sections to include
+# Dependencies: ui/output
+
+prompt_include_sw_foundations() {
+  echo ""
+  echo "Software Foundations (your coding standards):"
+  echo "  These tell the AI how YOU want code written"
+  echo "  - Design principles (SOLID, Clean Architecture, DDD)"
+  echo "  - Code standards (naming, functions, testing)"
+  echo "  - Architecture patterns and best practices"
+  echo "  - 15 files (~8K tokens)"
+  echo ""
+  
+  local choice
+  read -rp "Include your coding standards? [y/n]: " choice
+  
+  case "$choice" in
+    n|N|no|No|NO|2)
+      print_info "✗ Skipping coding standards"
+      return 1
+      ;;
+    *)
+      print_info "✓ Including coding standards"
+      return 0
+      ;;
+  esac
+}
+
+prompt_include_workflow() {
+  echo ""
+  echo "Workflow Guides (your process expectations):"
+  echo "  These tell the AI how YOU want to work"
+  echo "  - Chat session checklists"
+  echo "  - Code completion checklist"
+  echo "  - Documentation standards"
+  echo "  - 5 files (~2K tokens)"
+  echo ""
+  
+  local choice
+  read -rp "Include your workflow preferences? [y/n]: " choice
+  
+  case "$choice" in
+    n|N|no|No|NO|2)
+      print_info "✗ Skipping workflow guides"
+      return 1
+      ;;
+    *)
+      print_info "✓ Including workflow guides"
+      return 0
+      ;;
+  esac
+}
+
+prompt_include_personal() {
+  echo ""
+  echo "Personal Context (about you):"
+  echo "  This tells the AI about your background and style"
+  echo "  - Your experience and expertise"
+  echo "  - Technical skills and proficiency"
+  echo "  - Communication preferences"
+  echo "  - 3 files (~1K tokens)"
+  echo ""
+  
+  local choice
+  read -rp "Include your personal context? [y/n]: " choice
+  
+  case "$choice" in
+    n|N|no|No|NO|2)
+      print_info "✗ Skipping personal context"
+      return 1
+      ;;
+    *)
+      print_info "✓ Including personal context"
+      return 0
+      ;;
+  esac
+}
+
+prompt_edit_personal_templates() {
+  echo ""
+  print_info "Personal context templates have been created."
+  echo "  Location: $CONTEXT_LIBRARY_DIR/personal/"
+  echo ""
+  echo "You can edit these files to tell the AI about yourself:"
+  echo "  - personal-background.md (your background, experience, goals)"
+  echo "  - technical-skills.md (languages, frameworks, proficiency levels)"
+  echo "  - working-style.md (communication preferences, code style)"
+  echo ""
+  
+  local choice
+  read -rp "Edit templates now? [y/n]: " choice
+  
+  if [[ "$choice" =~ ^[Yy]$ ]]; then
+    local editor="${EDITOR:-nano}"
+    echo ""
+    print_info "Opening files in $editor..."
+    echo "Edit each file, save and close to continue."
+    echo ""
+    
+    "$editor" "$CONTEXT_LIBRARY_DIR/personal/personal-background.md"
+    "$editor" "$CONTEXT_LIBRARY_DIR/personal/technical-skills.md"
+    "$editor" "$CONTEXT_LIBRARY_DIR/personal/working-style.md"
+    
+    print_success "Personal templates updated!"
+  else
+    print_info "You can edit them later at: $CONTEXT_LIBRARY_DIR/personal/"
+  fi
+}
+
+prompt_view_context() {
+  local filepath=$1
+  
+  echo ""
+  local choice
+  read -rp "View context now? [y/n]: " choice
+  
+  case "$choice" in
+    n|N|no|No|NO|2)
+      return 0
+      ;;
+    *)
+      echo ""
+      local pager="${PAGER:-less}"
+      if command -v "$pager" >/dev/null 2>&1; then
+        "$pager" "$filepath"
+      else
+        cat "$filepath"
+      fi
+      return 0
+      ;;
+  esac
+}

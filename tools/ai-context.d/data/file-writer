@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# data/file-writer - Write context files
+#
+# Responsibility: Write generated context to output files
+# Dependencies: ui/paths, ui/fs-utils
+
+write_context_file() {
+  local filepath=$1
+  local content=$2
+  
+  echo "$content" > "$filepath"
+  return $?
+}
+
+generate_project_filepath() {
+  local project_name=$1
+  
+  local sanitized_name
+  sanitized_name=$(sanitize_filename "$project_name")
+  
+  echo "$PROJECTS_DIR/${sanitized_name}-context.md"
+}

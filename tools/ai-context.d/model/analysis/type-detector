@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# model/analysis/type-detector - Project type detection
+#
+# Responsibility: Determine project type from filesystem
+# Dependencies: None (pure business logic)
+
+detect_project_type() {
+  local path=$1
+  
+  # Android
+  if [[ -f "$path/build.gradle.kts" ]] || [[ -f "$path/build.gradle" ]] || [[ -f "$path/settings.gradle.kts" ]]; then
+    echo "android"
+    return
+  fi
+  
+  # iOS
+  if [[ -f "$path/Package.swift" ]] || compgen -G "$path/*.xcodeproj" > /dev/null 2>&1; then
+    echo "ios"
+    return
+  fi
+  
+  # Node.js
+  if [[ -f "$path/package.json" ]]; then
+    echo "nodejs"
+    return
+  fi
+  
+  # Python
+  if [[ -f "$path/setup.py" ]] || [[ -f "$path/pyproject.toml" ]] || [[ -f "$path/requirements.txt" ]]; then
+    echo "python"
+    return
+  fi
+  
+  # Go
+  if [[ -f "$path/go.mod" ]]; then
+    echo "go"
+    return
+  fi
+  
+  # Rust
+  if [[ -f "$path/Cargo.toml" ]]; then
+    echo "rust"
+    return
+  fi
+  
+  # Java (Maven)
+  if [[ -f "$path/pom.xml" ]]; then
+    echo "java-maven"
+    return
+  fi
+  
+  # Generic with Makefile
+  if [[ -f "$path/Makefile" ]]; then
+    echo "makefile-project"
+    return
+  fi
+  
+  echo "unknown"
+}

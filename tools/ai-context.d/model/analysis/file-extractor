@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# model/analysis/file-extractor - Extract key project files
+#
+# Responsibility: Read and format key project files (README, build configs)
+# Dependencies: ui/fs-operations (for read_file_safe)
+
+extract_key_files() {
+  local path=$1
+  local project_type=$2
+  
+  local content=""
+  
+  # README
+  if [[ -f "$path/README.md" ]]; then
+    content+="### README.md"
+    content+=$'\n\n'
+    content+='```markdown'
+    content+=$'\n'
+    content+="$(read_file_safe "$path/README.md")"
+    content+=$'\n```\n\n'
+  fi
+  
+  # ARCHITECTURE
+  if [[ -f "$path/ARCHITECTURE.md" ]]; then
+    content+="### ARCHITECTURE.md"
+    content+=$'\n\n'
+    content+='```markdown'
+    content+=$'\n'
+    content+="$(read_file_safe "$path/ARCHITECTURE.md")"
+    content+=$'\n```\n\n'
+  fi
+  
+  # Project-specific build files
+  case "$project_type" in
+    android)
+      if [[ -f "$path/build.gradle.kts" ]]; then
+        content+="### build.gradle.kts (first 50 lines)"
+        content+=$'\n\n```kotlin\n'
+        content+="$(head -50 "$path/build.gradle.kts")"
+        content+=$'\n```\n\n'
+      fi
+      ;;
+    nodejs)
+      if [[ -f "$path/package.json" ]]; then
+        content+="### package.json"
+        content+=$'\n\n```json\n'
+        content+="$(read_file_safe "$path/package.json")"
+        content+=$'\n```\n\n'
+      fi
+      ;;
+    go)
+      if [[ -f "$path/go.mod" ]]; then
+        content+="### go.mod"
+        content+=$'\n\n```\n'
+        content+="$(read_file_safe "$path/go.mod")"
+        content+=$'\n```\n\n'
+      fi
+      ;;
+    python)
+      if [[ -f "$path/requirements.txt" ]]; then
+        content+="### requirements.txt"
+        content+=$'\n\n```\n'
+        content+="$(read_file_safe "$path/requirements.txt")"
+        content+=$'\n```\n\n'
+      fi
+      ;;
+  esac
+  
+  echo "$content"
+}

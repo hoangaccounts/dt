@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# ui/validators - Input validation
+#
+# Responsibility: Validate user input and system state
+# Dependencies: ui/output, ui/paths
+
+validate_context_library_exists() {
+  if [[ ! -d "$CONTEXT_LIBRARY_DIR" ]]; then
+    print_error "Context library not found at $CONTEXT_LIBRARY_DIR"
+    echo ""
+    echo "This should be auto-installed on first use."
+    echo "If problem persists, reinstall ai-context tool."
+    echo ""
+    return 1
+  fi
+  
+  local required_dirs=("sw-foundations" "workflow" "personal")
+  for dir in "${required_dirs[@]}"; do
+    if [[ ! -d "$CONTEXT_LIBRARY_DIR/$dir" ]]; then
+      print_error "Missing required directory: $CONTEXT_LIBRARY_DIR/$dir"
+      return 1
+    fi
+  done
+  
+  return 0
+}
+
+validate_project_path() {
+  local path=$1
+  
+  if [[ -z "$path" ]]; then
+    print_error "Project path required"
+    return 1
+  fi
+  
+  if [[ ! -d "$path" ]]; then
+    print_error "Directory not found: $path"
+    return 1
+  fi
+  
+  return 0
+}
+
+validate_project_name() {
+  local name=$1
+  
+  if [[ -z "$name" ]]; then
+    print_error "Project name required"
+    return 1
+  fi
+  
+  return 0
+}
+
+validate_chat_summary_file() {
+  local file=$1
+  
+  if [[ -z "$file" ]]; then
+    print_error "Chat summary file required"
+    return 1
+  fi
+  
+  if [[ ! -f "$file" ]]; then
+    print_error "File not found: $file"
+    return 1
+  fi
+  
+  return 0
+}
+
+ensure_projects_directory() {
+  mkdir -p "$PROJECTS_DIR"
+}

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ui/auto-installer - Auto-install bundled context library
+#
+# Responsibility: Copy bundled context-library to user directory on first use
+# Dependencies: ui/paths, ui/output, ui/fs-operations
+
+ensure_context_library_installed() {
+  # Check if already installed
+  if [[ -d "$CONTEXT_LIBRARY_DIR" ]]; then
+    return 0  # Already installed
+  fi
+  
+  print_info "Initializing context library (first-time setup)..."
+  
+  # Find bundled context-library
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  local bundled_dir="$script_dir/context-library"
+  
+  if [[ ! -d "$bundled_dir" ]]; then
+    print_error "Bundled context library not found at: $bundled_dir"
+    return 1
+  fi
+  
+  # Copy bundled context-library to user directory
+  mkdir -p "$(dirname "$CONTEXT_LIBRARY_DIR")"
+  
+  if copy_directory_recursive "$bundled_dir" "$CONTEXT_LIBRARY_DIR"; then
+    print_success "Context library installed to: $CONTEXT_LIBRARY_DIR"
+    return 0
+  else
+    print_error "Failed to install context library"
+    return 1
+  fi
+}

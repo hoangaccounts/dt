@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# ui/personal-templates - Personal context template creation
+#
+# Responsibility: Create editable personal context template files for user
+# Dependencies: ui/paths, ui/output
+
+create_personal_templates() {
+  local personal_dir="$CONTEXT_LIBRARY_DIR/personal"
+  
+  # Check if any personal files already exist
+  if [[ -f "$personal_dir/personal-background.md" ]] || \
+     [[ -f "$personal_dir/technical-skills.md" ]] || \
+     [[ -f "$personal_dir/working-style.md" ]]; then
+    return 0  # Already exists, use as-is
+  fi
+  
+  print_info "Creating personal context templates..."
+  mkdir -p "$personal_dir"
+  
+  # Create personal-background.md template
+  cat > "$personal_dir/personal-background.md" << 'EOF'
+# Personal Background
+
+<!-- Edit this file to help AI understand your background and experience -->
+
+## Your Background
+
+(Add your background here - education, career path, current role, etc.)
+
+## Experience Level
+
+(Add your experience level - years in industry, specializations, etc.)
+
+## Domain Knowledge
+
+(Add specific domain knowledge that's relevant - industries you've worked in, business contexts, etc.)
+
+## Goals & Interests
+
+(Add what you're working towards, what you want to learn, areas of interest)
+
+---
+
+**Note:** This file is loaded into every AI context you generate.
+Add anything that helps AI assistants understand who you are and how to help you effectively.
+EOF
+
+  # Create technical-skills.md template
+  cat > "$personal_dir/technical-skills.md" << 'EOF'
+# Technical Skills
+
+<!-- Edit this file to specify your technical proficiency levels -->
+
+## Programming Languages
+
+- **Language 1**: (Proficiency level - beginner/intermediate/advanced/expert)
+- **Language 2**: (Proficiency level)
+
+## Frameworks & Tools
+
+- **Framework/Tool 1**: (Experience level and use cases)
+- **Framework/Tool 2**: (Experience level and use cases)
+
+## Architecture & Design
+
+(Add experience with architectural patterns, design approaches, methodologies)
+
+## Development Environment
+
+- **OS**: (Your development OS)
+- **Editor/IDE**: (Your preferred tools)
+- **Version Control**: (Git workflow preferences)
+
+## Areas You're Learning
+
+(Add technologies or skills you're currently learning or want to improve)
+
+---
+
+**Note:** This helps AI calibrate responses to your skill level and provide appropriate explanations.
+EOF
+
+  # Create working-style.md template
+  cat > "$personal_dir/working-style.md" << 'EOF'
+# Working Style
+
+<!-- Edit this file to specify how you prefer to work with AI assistants -->
+
+## Communication Preferences
+
+- **Response Style**: (e.g., concise/detailed, formal/casual)
+- **Code Style**: (e.g., always complete code, include comments, specific formatting)
+- **Explanation Level**: (e.g., explain like I'm experienced, teach concepts, just give code)
+
+## Code Generation Preferences
+
+- **Language Features**: (e.g., prefer modern syntax, avoid certain patterns)
+- **Documentation**: (e.g., inline comments, separate docs, minimal)
+- **Error Handling**: (e.g., explicit checks, use exceptions, fail fast)
+
+## Workflow Preferences
+
+- **Testing Approach**: (e.g., TDD, test after, integration focused)
+- **Commit Style**: (e.g., small commits, feature branches, specific message format)
+- **Review Process**: (e.g., detailed explanations, quick iterations)
+
+## What Helps You Most
+
+(Add specific things that make AI assistance more valuable for you)
+
+## What to Avoid
+
+(Add things AI should not do - patterns to avoid, communication styles that don't work, etc.)
+
+---
+
+**Note:** This helps AI adapt to your working preferences and provide more effective assistance.
+EOF
+
+  print_success "Personal context templates created at: $personal_dir"
+  echo ""
+  print_info "Edit these files to customize your AI context:"
+  echo "  - personal-background.md"
+  echo "  - technical-skills.md"
+  echo "  - working-style.md"
+  echo ""
+  
+  return 0
+}
+
+check_personal_templates_exist() {
+  local personal_dir="$CONTEXT_LIBRARY_DIR/personal"
+  
+  [[ -f "$personal_dir/personal-background.md" ]] && \
+  [[ -f "$personal_dir/technical-skills.md" ]] && \
+  [[ -f "$personal_dir/working-style.md" ]]
+}

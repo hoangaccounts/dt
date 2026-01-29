@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# data/project-store - Project metadata storage
+#
+# Responsibility: Store and retrieve project context and append chat summaries
+# Dependencies: ui/fs-operations
+
+load_project_context() {
+  local project_name=$1
+  
+  local filepath
+  filepath=$(generate_project_filepath "$project_name")
+  
+  read_file_safe "$filepath"
+}
+
+append_chat_summary() {
+  local project_name=$1
+  local summary_content=$2
+  
+  local filepath
+  filepath=$(generate_project_filepath "$project_name")
+  
+  if [[ ! -f "$filepath" ]]; then
+    return 1
+  fi
+  
+  # Update the "Last Updated" timestamp
+  local temp_file="${filepath}.tmp"
+  local updated_date
+  updated_date=$(date '+%Y-%m-%d %H:%M:%S')
+  
+  sed "s/^\*\*Last Updated:\*\*.*/\*\*Last Updated:\*\* $updated_date/" "$filepath" > "$temp_file"
+  
+  # Find where "# Context Library" starts
+  local insert_line
+  insert_line=$(grep -n "^# Context Library" "$temp_file" | head -1 | cut -d: -f1)
+  
+  if [[ -z "$insert_line" ]]; then
+    # Fallback: append at end
+    {
+      echo ""
+      echo "---"
+      echo ""
+      echo "## Session: $(date '+%Y-%m-%d %H:%M')"
+      echo ""
+      echo "$summary_content"
+    } >> "$temp_file"
+    mv "$temp_file" "$filepath"
+    return 0
+  fi
+  
+  # Insert new session BEFORE Context Library
+  local final_file="${filepath}.new"
+  
+  # Copy everything before "# Context Library"
+  head -n $((insert_line - 2)) "$temp_file" > "$final_file"
+  
+  # Add new session
+  {
+    echo ""
+    echo "---"
+    echo ""
+    echo "## Session: $(date '+%Y-%m-%d %H:%M')"
+    echo ""
+    echo "$summary_content"
+    echo ""
+  } >> "$final_file"
+  
+  # Add rest of file from Context Library onward
+  tail -n +$insert_line "$temp_file" >> "$final_file"
+  
+  mv "$final_file" "$filepath"
+  rm "$temp_file"
+  
+  return 0
+}

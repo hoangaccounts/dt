@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# data/foundation-loader - Load foundation documentation
+#
+# Responsibility: Read and combine selected foundation files from filesystem
+# Dependencies: ui/output, ui/paths
+
+load_foundation_documentation() {
+  local include_sw_foundations=${1:-true}
+  local include_workflow=${2:-true}
+  local include_personal=${3:-true}
+  
+  print_info "Loading selected documentation..."
+  
+  local content=""
+  
+  # Load sw-foundations (if requested)
+  if [[ "$include_sw_foundations" == "true" ]] && [[ -d "$CONTEXT_LIBRARY_DIR/sw-foundations" ]]; then
+    while IFS= read -r file; do
+      if [[ -n "$file" ]]; then
+        content+="$(cat "$file" 2>/dev/null || true)"
+        content+=$'\n\n'
+      fi
+    done < <(find "$CONTEXT_LIBRARY_DIR/sw-foundations" -maxdepth 1 -type f -name "*.md" | sort)
+    
+    content+="---"
+    content+=$'\n\n'
+  fi
+  
+  # Load personal context (if requested)
+  if [[ "$include_personal" == "true" ]] && [[ -d "$CONTEXT_LIBRARY_DIR/personal" ]]; then
+    while IFS= read -r file; do
+      if [[ -n "$file" ]]; then
+        content+="$(cat "$file" 2>/dev/null || true)"
+        content+=$'\n\n'
+      fi
+    done < <(find "$CONTEXT_LIBRARY_DIR/personal" -maxdepth 1 -type f -name "*.md" | sort)
+    
+    content+="---"
+    content+=$'\n\n'
+  fi
+  
+  # Load workflow guides (if requested)
+  if [[ "$include_workflow" == "true" ]] && [[ -d "$CONTEXT_LIBRARY_DIR/workflow" ]]; then
+    while IFS= read -r file; do
+      if [[ -n "$file" ]]; then
+        content+="$(cat "$file" 2>/dev/null || true)"
+        content+=$'\n\n'
+      fi
+    done < <(find "$CONTEXT_LIBRARY_DIR/workflow" -maxdepth 1 -type f -name "*.md" | sort)
+    
+    content+="---"
+    content+=$'\n\n'
+  fi
+  
+  echo "$content"
+}

@@ -1,0 +1,554 @@
+#!/usr/bin/env bash
+# VERSION: 0.0.1
+# SUMMARY: Generate AI assistant context files with foundation documentation and project analysis.
+# TAGS: project, share, files
+# ALIASES: aic
+# SYNOPSIS: dt ai-context
+#   dt ai-context new [--name <n>] [--type <t>] [--size <s>]
+#   dt ai-context scan <path>
+#   dt ai-context update <project-name> <chat-summary-file>
+#   dt ai-context status
+# DESCRIPTION: Combines foundation documentation (design principles, code standards,
+#   testing, deployment, personal context) with project-specific information to create
+#   comprehensive AI assistant context files. Supports new projects, existing projects
+#   (via scan), and updating project history from chat summaries.
+# OPTIONS:
+#   new --name <n>      Create context for new project (interactive if flags omitted)
+#      --type <t>       Project type: android, ios, backend, frontend, cli, library
+#      --size <s>       Project size: small, medium, large
+#      --features <f>   Comma-separated features
+#   scan <path>         Scan existing project and create context (detects type, prompts for size/features)
+#   update <n> <file>   Update project context with chat summary history
+#   status              Show installation status
+# EXAMPLES:
+#   dt ai-context new --name shopping-app --type android --size medium
+#   dt ai-context scan ~/projects/my-app
+#   dt ai-context scan .
+#   dt ai-context update shopping-app ./chat-summary.md
+# OUTPUT: Context markdown files saved to ~/.dt/ai-contexts/
+# SAFETY: non-destructive
+# DEPS: None (pure bash)
+# CREDITS: Based on foundation documentation compression work
+# MISC: Foundation documentation provides ~11K tokens of compressed standards
+### END HELP
+set -euo pipefail
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly LIB_DIR="${SCRIPT_DIR}/ai-context.d"
+
+# Load modules in dependency order:
+# 1. ui/ (no dependencies)
+# 2. data/ (depends on ui/)
+# 3. model/ (depends on ui/ for file operations)
+# 4. main orchestrates all
+
+# UI layer (infrastructure)
+source "${LIB_DIR}/ui/output"
+source "${LIB_DIR}/ui/input"
+source "${LIB_DIR}/ui/paths"
+source "${LIB_DIR}/ui/fs-utils"
+source "${LIB_DIR}/ui/fs-operations"
+source "${LIB_DIR}/ui/validators"
+source "${LIB_DIR}/ui/personal-templates"
+source "${LIB_DIR}/ui/foundation-prompts"
+source "${LIB_DIR}/ui/auto-installer"
+
+# Data layer (adapters)
+source "${LIB_DIR}/data/foundation-loader"
+source "${LIB_DIR}/data/file-writer"
+source "${LIB_DIR}/data/project-store"
+
+# Model layer (domain)
+source "${LIB_DIR}/model/analysis/type-detector"
+source "${LIB_DIR}/model/analysis/file-extractor"
+source "${LIB_DIR}/model/context/new-project"
+source "${LIB_DIR}/model/context/existing-project"
+source "${LIB_DIR}/model/context/updated-project"
+
+# Version constant
+readonly VERSION="0.0.1"
+
+print_usage() {
+  echo "Run: dt help ai-context"
+}
+
+cmd_new() {
+  # Auto-install context library on first use
+  ensure_context_library_installed || return 1
+  
+  validate_context_library_exists || return 1
+  
+  # Check and create personal templates if needed
+  if ! check_personal_templates_exist; then
+    create_personal_templates
+    prompt_edit_personal_templates
+  fi
+  
+  print_info "Creating context for NEW project"
+  echo ""
+  
+  local project_name=""
+  local project_type=""
+  local project_size="medium"
+  local features=""
+  
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --name)
+        project_name=$2
+        shift 2
+        ;;
+      --type)
+        project_type=$2
+        shift 2
+        ;;
+      --size)
+        project_size=$2
+        shift 2
+        ;;
+      --features)
+        features=$2
+        shift 2
+        ;;
+      # Legacy flag support
+      --scope)
+        project_size=$2
+        shift 2
+        ;;
+      *)
+        print_error "Unknown option: $1"
+        return 1
+        ;;
+    esac
+  done
+  
+  # Interactive prompts for missing values
+  if [[ -z "$project_name" ]]; then
+    project_name=$(prompt_for_text "Project name")
+  fi
+  
+  if [[ -z "$project_type" ]]; then
+    echo ""
+    echo "Select project type:"
+    echo "  1. Android"
+    echo "  2. iOS"
+    echo "  3. Backend API"
+    echo "  4. Frontend Web"
+    echo "  5. CLI Tool"
+    echo "  6. Library/Package"
+    echo "  7. Other"
+    echo ""
+    local choice
+    read -rp "Enter number [1-7]: " choice
+    case "$choice" in
+      1) project_type="android" ;;
+      2) project_type="ios" ;;
+      3) project_type="backend" ;;
+      4) project_type="frontend" ;;
+      5) project_type="cli" ;;
+      6) project_type="library" ;;
+      7) project_type="other" ;;
+      *) project_type="other" ;;
+    esac
+  fi
+  
+  if [[ "$project_size" == "medium" ]]; then
+    echo ""
+    echo "Select project size:"
+    echo "  1. Small (MVP, prototype, proof-of-concept)"
+    echo "  2. Medium (Production app, standard features)"
+    echo "  3. Large (Enterprise system, complex domain)"
+    echo ""
+    local choice
+    read -rp "Enter number [1-3, default 2]: " choice
+    case "$choice" in
+      1) project_size="small" ;;
+      2|"") project_size="medium" ;;
+      3) project_size="large" ;;
+      *) project_size="medium" ;;
+    esac
+  fi
+  
+  if [[ -z "$features" ]]; then
+    echo ""
+    features=$(prompt_for_text "Key features (comma-separated, e.g., auth,offline,sync)" "")
+  fi
+  
+  validate_project_name "$project_name" || return 1
+  
+  # Prompt for foundation sections
+  local include_sw_foundations="false"
+  local include_workflow="false"
+  local include_personal="false"
+  
+  if prompt_include_sw_foundations; then
+    include_sw_foundations="true"
+  fi
+  
+  if prompt_include_workflow; then
+    include_workflow="true"
+  fi
+  
+  if prompt_include_personal; then
+    include_personal="true"
+  fi
+  
+  # Load foundation with selected sections
+  local foundation
+  foundation=$(load_foundation_documentation "$include_sw_foundations" "$include_workflow" "$include_personal")
+  
+  # Generate context
+  local context_content
+  context_content=$(build_new_project_context \
+    "$project_name" \
+    "$project_type" \
+    "$project_size" \
+    "$features" \
+    "$foundation" \
+    "$VERSION")
+  
+  # Write single context file
+  ensure_projects_directory
+  
+  local context_file
+  context_file=$(generate_project_filepath "$project_name")
+  write_context_file "$context_file" "$context_content"
+  
+  echo ""
+  print_success "Context created: $context_file"
+  
+  # Prompt to view
+  prompt_view_context "$context_file"
+  
+  echo ""
+  print_info "Next steps:"
+  echo "  1. Upload this file to your AI assistant (Claude, etc.)"
+  echo "  2. Discuss architecture and approach"
+  echo "  3. Start building!"
+}
+
+cmd_scan() {
+  local project_path="${1:-.}"
+  
+  # Auto-install context library on first use
+  ensure_context_library_installed || return 1
+  
+  validate_context_library_exists || return 1
+  validate_project_path "$project_path" || return 1
+  
+  # Check and create personal templates if needed
+  if ! check_personal_templates_exist; then
+    create_personal_templates
+    prompt_edit_personal_templates
+  fi
+  
+  print_info "Scanning existing project at: $project_path"
+  echo ""
+  
+  # Get directory name as default
+  local default_name
+  default_name=$(basename "$(cd "$project_path" && pwd)")
+  
+  # Check if context already exists with default name
+  local existing_context
+  existing_context=$(generate_project_filepath "$default_name")
+  
+  local project_name="$default_name"
+  
+  if [[ -f "$existing_context" ]]; then
+    # Existing context found - prompt for action
+    print_error "⚠️  Project context already exists: $(basename "$existing_context")"
+    local last_updated
+    last_updated=$(grep "^\*\*Last Updated:\*\*" "$existing_context" | sed 's/\*\*Last Updated:\*\* //')
+    echo "   Last updated: $last_updated"
+    echo ""
+    echo "What would you like to do?"
+    echo "  1. Overwrite (use same name: $default_name)"
+    echo "  2. Create with different name"
+    echo "  3. Cancel"
+    echo ""
+    
+    local action_choice
+    read -rp "Choice [1-3]: " action_choice
+    
+    case "$action_choice" in
+      1)
+        print_info "→ Using project name: $default_name (overwriting)"
+        ;;
+      2)
+        echo ""
+        read -rp "Enter new project name: " project_name
+        if [[ -z "$project_name" ]]; then
+          print_error "Project name required"
+          return 1
+        fi
+        print_info "→ Using project name: $project_name"
+        ;;
+      3|*)
+        print_info "Cancelled"
+        return 0
+        ;;
+    esac
+  else
+    # New project - prompt for name
+    echo "Project name:"
+    echo "  1. Use $default_name (current directory)"
+    echo "  2. Enter new name"
+    echo ""
+    
+    local name_choice
+    read -rp "Choice [1-2, default 1]: " name_choice
+    
+    case "$name_choice" in
+      2)
+        echo ""
+        read -rp "Enter project name: " project_name
+        if [[ -z "$project_name" ]]; then
+          project_name="$default_name"
+        fi
+        ;;
+      1|"")
+        project_name="$default_name"
+        ;;
+    esac
+    
+    print_info "→ Using project name: $project_name"
+  fi
+  
+  echo ""
+  
+  local project_type
+  project_type=$(detect_project_type "$project_path")
+  
+  if [[ "$project_type" == "unknown" ]]; then
+    print_info "Could not auto-detect project type"
+    echo ""
+    echo "Select project type:"
+    echo "  1. Android"
+    echo "  2. iOS"
+    echo "  3. Backend API"
+    echo "  4. Frontend Web"
+    echo "  5. CLI Tool"
+    echo "  6. Library/Package"
+    echo "  7. Other"
+    echo ""
+    local type_choice
+    read -rp "Enter number [1-7]: " type_choice
+    case "$type_choice" in
+      1) project_type="android" ;;
+      2) project_type="ios" ;;
+      3) project_type="backend" ;;
+      4) project_type="frontend" ;;
+      5) project_type="cli" ;;
+      6) project_type="library" ;;
+      7|*) project_type="other" ;;
+    esac
+  fi
+  
+  print_info "Project type: $project_type"
+  
+  # Prompt for project size
+  echo ""
+  echo "Select project size:"
+  echo "  1. Small (MVP, prototype, proof-of-concept)"
+  echo "  2. Medium (Production app, standard features)"
+  echo "  3. Large (Enterprise system, complex domain)"
+  echo ""
+  local size_choice
+  read -rp "Enter number [1-3, default 2]: " size_choice
+  local project_size="medium"
+  case "$size_choice" in
+    1) project_size="small" ;;
+    2|"") project_size="medium" ;;
+    3) project_size="large" ;;
+  esac
+  
+  # Prompt for features
+  echo ""
+  local features
+  features=$(prompt_for_text "Key features (comma-separated, e.g., auth,offline,sync)" "")
+  
+  local project_tree
+  project_tree=$(get_directory_tree "$project_path" 2)
+  
+  local key_files
+  key_files=$(extract_key_files "$project_path" "$project_type")
+  
+  # Prompt for foundation sections
+  local include_sw_foundations="false"
+  local include_workflow="false"
+  local include_personal="false"
+  
+  if prompt_include_sw_foundations; then
+    include_sw_foundations="true"
+  fi
+  
+  if prompt_include_workflow; then
+    include_workflow="true"
+  fi
+  
+  if prompt_include_personal; then
+    include_personal="true"
+  fi
+  
+  # Load foundation with selected sections
+  local foundation
+  foundation=$(load_foundation_documentation "$include_sw_foundations" "$include_workflow" "$include_personal")
+  
+  # Generate context
+  local context_content
+  context_content=$(build_existing_project_context \
+    "$project_name" \
+    "$project_type" \
+    "$project_size" \
+    "$features" \
+    "$project_path" \
+    "$project_tree" \
+    "$key_files" \
+    "$foundation" \
+    "$VERSION")
+  
+  # Write single context file
+  ensure_projects_directory
+  
+  local context_file
+  context_file=$(generate_project_filepath "$project_name")
+  write_context_file "$context_file" "$context_content"
+  
+  echo ""
+  print_success "Context created: $context_file"
+  
+  # Prompt to view
+  prompt_view_context "$context_file"
+  
+  echo ""
+  print_info "Next steps:"
+  echo "  1. Upload this file to your AI assistant (Claude, etc.)"
+  echo "  2. Start working on the project with full context!"
+}
+
+cmd_update() {
+  local project_name="${1:-}"
+  local summary_file="${2:-}"
+  
+  if [[ -z "$project_name" ]]; then
+    print_error "Project name required"
+    echo "Usage: dt ai-context update <project-name> <chat-summary-file>"
+    return 1
+  fi
+  
+  if [[ -z "$summary_file" ]]; then
+    print_error "Chat summary file required"
+    echo "Usage: dt ai-context update <project-name> <chat-summary-file>"
+    return 1
+  fi
+  
+  validate_context_library_exists || return 1
+  validate_project_name "$project_name" || return 1
+  validate_chat_summary_file "$summary_file" || return 1
+  
+  print_info "Updating context for project: $project_name"
+  echo ""
+  
+  # Check if project context exists
+  local context_file
+  context_file=$(generate_project_filepath "$project_name")
+  
+  if [[ ! -f "$context_file" ]]; then
+    print_error "Project not found: $project_name"
+    echo "Create project context first with: dt ai-context new or dt ai-context run"
+    return 1
+  fi
+  
+  # Read chat summary
+  local chat_summary
+  chat_summary=$(read_file_safe "$summary_file")
+  
+  # Append to project context
+  if append_chat_summary "$project_name" "$chat_summary"; then
+    echo ""
+    print_success "Context updated: $context_file"
+    
+    # Prompt to view
+    prompt_view_context "$context_file"
+    
+    echo ""
+    print_info "Next steps:"
+    echo "  1. Upload this file to your AI assistant for the next session"
+    echo "  2. Continue working with full project history!"
+  else
+    print_error "Failed to update context"
+    return 1
+  fi
+}
+
+cmd_status() {
+  echo "ai-context Status"
+  echo "================="
+  echo ""
+  
+  # Check context library
+  if validate_context_library_exists 2>/dev/null; then
+    print_success "Context library: Installed at $CONTEXT_LIBRARY_DIR"
+    
+    local file_count
+    file_count=$(find "$CONTEXT_LIBRARY_DIR" -type f -name "*.md" | wc -l)
+    echo "  Files: $file_count markdown files"
+  else
+    print_error "Context library: Not initialized"
+    echo "  Run 'dt ai-context new' or 'dt ai-context run' to initialize"
+  fi
+  
+  echo ""
+  
+  # Check projects
+  if [[ -d "$PROJECTS_DIR" ]]; then
+    local project_count
+    project_count=$(find "$PROJECTS_DIR" -type f -name "*-context.md" 2>/dev/null | wc -l)
+    echo "Projects: $project_count tracked"
+    
+    if [[ $project_count -gt 0 ]]; then
+      echo ""
+      echo "Recent projects:"
+      find "$PROJECTS_DIR" -type f -name "*-context.md" -exec basename {} \; | sed 's/-context.md//' | head -5 | sed 's/^/  - /'
+    fi
+  else
+    echo "Projects: 0 tracked"
+  fi
+  
+  echo ""
+  echo "Paths:"
+  echo "  Context library: $CONTEXT_LIBRARY_DIR"
+  echo "  Projects:        $PROJECTS_DIR"
+}
+
+main() {
+  local subcmd="${1:-}"
+  shift || true
+
+  case "${subcmd}" in
+    ""|help|-h|--help)
+      print_usage
+      ;;
+    new)
+      cmd_new "$@"
+      ;;
+    scan)
+      cmd_scan "$@"
+      ;;
+    update)
+      cmd_update "$@"
+      ;;
+    status)
+      cmd_status "$@"
+      ;;
+    *)
+      print_error "Unknown subcommand: ${subcmd}"
+      print_usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

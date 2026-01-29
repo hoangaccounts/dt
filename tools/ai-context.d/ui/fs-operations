@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# ui/fs-operations - File and directory operations
+#
+# Responsibility: Read files, copy directories, generate trees
+# Dependencies: None
+
+read_file_safe() {
+  local filepath=$1
+  
+  if [[ -f "$filepath" ]]; then
+    cat "$filepath"
+    return 0
+  fi
+  
+  return 1
+}
+
+copy_directory_recursive() {
+  local source=$1
+  local destination=$2
+  
+  if [[ ! -d "$source" ]]; then
+    return 1
+  fi
+  
+  mkdir -p "$destination"
+  cp -r "$source"/* "$destination"/ 2>/dev/null
+  return $?
+}
+
+get_directory_tree() {
+  local path=$1
+  local max_depth=${2:-2}
+  
+  local ignore_patterns=(
+    'node_modules' '.git' 'build' '.gradle' '.idea' '*.iml'
+    '.DS_Store' '__pycache__' '*.pyc' 'target' '.venv' 'venv'
+    'dist' 'out' '.next' 'coverage'
+  )
+  
+  local ignore_arg=""
+  for pattern in "${ignore_patterns[@]}"; do
+    ignore_arg="${ignore_arg}${pattern}|"
+  done
+  ignore_arg="${ignore_arg%|}"
+  
+  if command -v tree >/dev/null 2>&1; then
+    tree -L "$max_depth" -a -I "$ignore_arg" "$path" 2>/dev/null && return 0
+  fi
+  
+  local find_cmd="find \"$path\" -maxdepth $max_depth"
+  for pattern in "${ignore_patterns[@]}"; do
+    find_cmd="$find_cmd -not -path '*/$pattern/*'"
+  done
+  
+  eval "$find_cmd" 2>/dev/null | head -50 || echo "Unable to generate directory tree"
+}

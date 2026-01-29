@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# model/context/existing-project - Existing project context generation
+#
+# Responsibility: Build markdown content for existing projects
+# Dependencies: None (pure business logic)
+
+build_existing_project_context() {
+  local project_name=$1
+  local project_type=$2
+  local project_size=$3
+  local features=$4
+  local project_path=$5
+  local project_tree=$6
+  local key_files=$7
+  local foundation=$8
+  local version=${9:-"0.0.1"}
+  
+  local content=""
+  
+  # Header with metadata
+  content+="# AI Context: $project_name"
+  content+=$'\n\n'
+  content+="**Last Updated:** $(date '+%Y-%m-%d %H:%M:%S')"
+  content+=$'\n'
+  content+="**Tool:** dt ai-context v$version"
+  content+=$'\n'
+  content+="**Mode:** EXISTING PROJECT"
+  content+=$'\n\n'
+  content+="## Project Info"
+  content+=$'\n\n'
+  content+="- **Type:** $project_type"
+  content+=$'\n'
+  content+="- **Size:** $project_size"
+  content+=$'\n'
+  content+="- **Path:** $project_path"
+  content+=$'\n'
+  
+  if [[ -n "$features" ]]; then
+    content+="- **Features:** $features"
+    content+=$'\n'
+  fi
+  
+  content+=$'\n---\n\n'
+  
+  # Foundation
+  content+="# Context Library"
+  content+=$'\n\n'
+  content+="$foundation"
+  content+=$'\n---\n\n'
+  
+  # Project context
+  content+="# Project Context"
+  content+=$'\n\n'
+  
+  # Structure
+  content+="## Project Structure"
+  content+=$'\n\n```\n'
+  content+="$project_tree"
+  content+=$'\n```\n\n'
+  
+  # Key files
+  if [[ -n "$key_files" ]]; then
+    content+="## Key Files Found"
+    content+=$'\n'
+    content+="$key_files"
+    content+=$'\n'
+  fi
+  
+  # Instructions
+  content+="## Instructions for AI Assistant"
+  content+=$'\n\n'
+  content+="This is an **EXISTING PROJECT** - MATCH existing patterns."
+  content+=$'\n\n### Your Role\n\n'
+  content+="- Make surgical edits - only change what's requested"
+  content+=$'\n'
+  content+="- Follow established conventions and patterns"
+  content+=$'\n'
+  content+="- Maintain consistency with existing codebase"
+  content+=$'\n'
+  content+="- Respect current architecture and tech choices"
+  content+=$'\n\n### Critical Rules\n\n'
+  content+="1. **Match Existing Style:** Use same naming, structure, patterns as current code"
+  content+=$'\n'
+  content+="2. **No Unsolicited Refactoring:** Don't change unrelated code"
+  content+=$'\n'
+  content+="3. **Preserve Architecture:** Work within existing architectural decisions"
+  content+=$'\n'
+  content+="4. **Ask Before Introducing:** If new pattern needed, ask first"
+  content+=$'\n\n'
+  
+  echo "$content"
+}

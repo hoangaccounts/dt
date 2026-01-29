@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# ui/input - Interactive user prompts
+#
+# Responsibility: Gather text and choice input from user
+# Dependencies: None
+
+prompt_for_text() {
+  local prompt_message=$1
+  local default_value=${2:-""}
+  local result
+  
+  if [[ -n "$default_value" ]]; then
+    read -rp "$prompt_message [$default_value]: " result
+    result=${result:-$default_value}
+  else
+    read -rp "$prompt_message: " result
+  fi
+  
+  echo "$result"
+}
+
+prompt_for_choice() {
+  local prompt_message=$1
+  local choices=$2
+  local default_value=${3:-""}
+  
+  echo "$prompt_message"
+  echo "Options: $choices"
+  
+  local result
+  if [[ -n "$default_value" ]]; then
+    read -rp "Choice [$default_value]: " result
+    result=${result:-$default_value}
+  else
+    read -rp "Choice: " result
+  fi
+  
+  echo "$result"
+}

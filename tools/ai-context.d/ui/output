@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# ui/output - Display messages
+#
+# Responsibility: Format and display messages to user
+# Dependencies: None
+
+print_error() {
+  echo "Error: $*" >&2
+}
+
+print_success() {
+  echo "$*"
+}
+
+print_info() {
+  echo "$*"
+}

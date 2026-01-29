@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# ui/paths - Path constants
+#
+# Responsibility: Define all filesystem paths used by the tool
+# Dependencies: None
+
+readonly CONTEXT_LIBRARY_DIR="$HOME/.dt/ai-context/context-library"
+readonly PROJECTS_DIR="$HOME/.dt/ai-context/projects"
