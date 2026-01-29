@@ -42,8 +42,36 @@ bash ./dt -install
 
 ## Included tools
 
-- `git-aliases` — print and optionally install a safe git alias set.
-- `zip-project` — create a share-friendly zip of a project (excludes common caches).
+- **`ai-context`** — generate comprehensive AI assistant context files combining your coding standards, workflow preferences, and project details.
+- **`git-aliases`** — print and optionally install a safe git alias set.
+- **`jump-dir`** — bookmark and jump to frequently used directories.
+- **`prompt`** — customizable shell prompt with git status.
+- **`zip-project`** — create a share-friendly zip of a project (excludes common caches).
+
+### ai-context
+
+Generate rich context files for AI assistants (Claude, GPT, etc.) that include your coding standards, workflow preferences, personal expertise, and project-specific details.
+
+```bash
+# Create context for new project
+dt ai-context new --name my-app --type android --size medium
+
+# Scan existing project
+dt ai-context scan .
+
+# Update with session summary  
+dt ai-context update my-app ./session-notes.md
+
+# Check status
+dt ai-context status
+```
+
+The tool auto-installs a curated context library on first use at `~/.dt/ai-context/`.
+Customize by editing personal templates at `~/.dt/ai-context/context-library/personal/`.
+
+### git-aliases
+
+Print and optionally install a safe git alias set.
 
 Example:
 
