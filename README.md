@@ -1,4 +1,4 @@
-# dt-devtools
+# dt
 
 A tiny, self-documenting toolbox of command-line utilities for day-to-day software development.
 
@@ -20,7 +20,7 @@ See [`INSTALL.md`](INSTALL.md).
 
 ```bash
 git clone https://github.com/hoangaccounts/dt
-cd dt-devtools
+cd dt
 
 ./dt list
 ./dt tags
