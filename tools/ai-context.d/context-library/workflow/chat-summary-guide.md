@@ -46,3 +46,19 @@ Always summarize when:
 ---
 
 *Remaining sections unchanged.*
+
+## `@summary` Output Format
+
+When `@summary` is invoked, the assistant produces a **downloadable markdown file**
+containing the accepted `@note` and `@update` items from the session.
+
+This file is intended to be used as input to:
+
+    dt ai-context update <project>
+
+The output should:
+- Contain only atomic `@note` and `@update` blocks
+- Avoid narrative or explanatory prose
+- Be immediately usable without manual editing
+
+A brief on-screen preview may be shown before the file is generated.

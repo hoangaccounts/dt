@@ -7,6 +7,8 @@
 #   dt ai-context new [--name <n>] [--type <t>] [--size <s>]
 #   dt ai-context scan <path>
 #   dt ai-context update <project-name> <chat-summary-file>
+#   dt ai-context sync library [--dry-run]
+#   dt ai-context sync project <project-name>
 #   dt ai-context status
 # DESCRIPTION: Combines foundation documentation (design principles, code standards,
 #   testing, deployment, personal context) with project-specific information to create
@@ -19,12 +21,18 @@
 #      --features <f>   Comma-separated features
 #   scan <path>         Scan existing project and create context (detects type, prompts for size/features)
 #   update <n> <file>   Update project context with chat summary history
+#   sync library        Sync bundled library to user library (sw-foundations, workflow)
+#      --dry-run        Show what would be synced without applying changes
+#   sync project <n>    Regenerate project context with updated foundation (preserves history)
 #   status              Show installation status
 # EXAMPLES:
 #   dt ai-context new --name shopping-app --type android --size medium
 #   dt ai-context scan ~/projects/my-app
 #   dt ai-context scan .
 #   dt ai-context update shopping-app ./chat-summary.md
+#   dt ai-context sync library --dry-run
+#   dt ai-context sync library
+#   dt ai-context sync project shopping-app
 # OUTPUT: Context markdown files saved to ~/.dt/ai-contexts/
 # SAFETY: non-destructive
 # DEPS: None (pure bash)
@@ -52,6 +60,7 @@ source "${LIB_DIR}/ui/validators"
 source "${LIB_DIR}/ui/personal-templates"
 source "${LIB_DIR}/ui/foundation-prompts"
 source "${LIB_DIR}/ui/auto-installer"
+source "${LIB_DIR}/ui/library-sync"
 
 # Data layer (adapters)
 source "${LIB_DIR}/data/foundation-loader"
@@ -64,6 +73,7 @@ source "${LIB_DIR}/model/analysis/file-extractor"
 source "${LIB_DIR}/model/context/new-project"
 source "${LIB_DIR}/model/context/existing-project"
 source "${LIB_DIR}/model/context/updated-project"
+source "${LIB_DIR}/model/sync"
 
 # Version constant
 readonly VERSION="0.1.0"
@@ -523,6 +533,66 @@ cmd_status() {
   echo "  Projects:        $PROJECTS_DIR"
 }
 
+cmd_sync() {
+  local subcmd="${1:-}"
+  shift || true
+  
+  case "${subcmd}" in
+    library)
+      cmd_sync_library "$@"
+      ;;
+    project)
+      cmd_sync_project "$@"
+      ;;
+    "")
+      print_error "Sync target required: library or project"
+      echo "Usage:"
+      echo "  dt ai-context sync library [--dry-run]"
+      echo "  dt ai-context sync project <project-name>"
+      return 1
+      ;;
+    *)
+      print_error "Unknown sync target: ${subcmd}"
+      echo "Valid targets: library, project"
+      return 1
+      ;;
+  esac
+}
+
+cmd_sync_library() {
+  local dry_run=false
+  
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --dry-run)
+        dry_run=true
+        shift
+        ;;
+      *)
+        print_error "Unknown option: $1"
+        echo "Usage: dt ai-context sync library [--dry-run]"
+        return 1
+        ;;
+    esac
+  done
+  
+  validate_context_library_exists || return 1
+  
+  sync_context_library "$dry_run"
+}
+
+cmd_sync_project() {
+  local project_name="${1:-}"
+  
+  if [[ -z "$project_name" ]]; then
+    print_error "Project name required"
+    echo "Usage: dt ai-context sync project <project-name>"
+    return 1
+  fi
+  
+  sync_project_context "$project_name"
+}
+
 main() {
   local subcmd="${1:-}"
   shift || true
@@ -539,6 +609,9 @@ main() {
       ;;
     update)
       cmd_update "$@"
+      ;;
+    sync)
+      cmd_sync "$@"
       ;;
     status)
       cmd_status "$@"

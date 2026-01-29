@@ -22,6 +22,66 @@ It works in conjunction with the `dt ai-context` tool, which owns **storage and 
 ## Supported Tags
 
 ### `@note`
+
+## Optional `@note` Tags (Classification)
+
+Notes may optionally include one or more **classification tags** to indicate status and meaning.
+Tags are **plain-text metadata only** and are preserved verbatim.
+
+Format:
+```
+@note
+[Tag][Tag]...
+<note content>
+```
+
+### Tag Sets
+
+#### 1) Status tags (Kanban)
+If a status tag is present, it **must be the first tag**, and there should be **only one** status tag.
+
+- `[Backlog]` — idea parked
+- `[Todo]` — committed, not started
+- `[Doing]` — in progress
+- `[Review]` — waiting for review/feedback
+- `[Done]` — completed/shipped
+- `[Blocked]` — cannot proceed
+
+#### 2) Artifact / meaning tags
+Use these after the status tag (if present):
+
+- `[Research]`
+- `[Questions]`
+- `[Plan]`
+- `[Execution]`
+
+Optional qualifiers (also after status/artifact tags):
+
+- `[Invariant]`
+- `[Constraint]`
+- `[Risk]`
+- `[Decision]`
+
+### Ordering Rule
+
+When combining tags, order them as:
+
+**status → artifact → qualifiers**
+
+Example:
+```
+@note
+[Todo][Plan][Risk]
+Write migration steps with rollback.
+```
+
+### Semantics
+
+- Tags are optional.
+- Tags do **not** affect acceptance, storage, or summarization semantics.
+- Untagged notes remain fully valid.
+
+
 Marks knowledge worth preserving across chats.
 
 ### `@update`
