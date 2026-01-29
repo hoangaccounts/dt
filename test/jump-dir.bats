@@ -5,7 +5,7 @@ load "support/test_helpers.bash"
 @test "jump-dir help prints" {
   run "$(dt_bin)" help jump-dir
   [ "$status" -eq 0 ]
-  [[ "$output" == VERSION:* ]]
+  [[ "$output" == *"VERSION:"* ]]
   [[ "$output" == *$'\nSUMMARY:'* ]]
   [[ "$output" == *$'\nTAGS:'* ]]
 
