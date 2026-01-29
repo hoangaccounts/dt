@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+
+      - name: Shellcheck
+        run: |
+          shellcheck bootstrap dt tools/* || true
+        # NOTE:
+        # - If you want shellcheck to fail CI, remove the `|| true`.
+        # - Leaving it non-blocking in v0.1.0 is pragmatic while rules are tuned.
+
+      - name: Run bats tests
+        run: |
+          chmod +x bootstrap dt tools/* || true
+          bats test

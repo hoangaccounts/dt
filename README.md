@@ -5,7 +5,10 @@ A tiny, self-documenting toolbox of command-line utilities for day-to-day softwa
 - **Discover tools:** `./dt list`, `./dt tags`
 - **Read help:** `./dt help <tool>` or `./dt <tool>`
 - **Run tools:** `./dt <tool> [args...]`
-- **Optional install:** `./dt install` (symlinks `dt` to `~/.local/bin/dt`)
+
+## Install / Uninstall
+
+See [`INSTALL.md`](INSTALL.md).
 
 ## Design goals
 
@@ -13,32 +16,23 @@ A tiny, self-documenting toolbox of command-line utilities for day-to-day softwa
 - **Docs live with code:** each tool has a man-style header at the top (DRY).
 - **Safe by default:** `dt <tool>` prints help; tools use confirmations for persistent changes.
 
-## Quickstart
+## Quickstart (run from repo)
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/hoangaccounts/dt
 cd dt-devtools
 
-# Optional: put `dt` on PATH (recommended)
-./dt -install
-
-dt list
-dt tags
-dt help git-aliases
-dt git-aliases list
+./dt list
+./dt tags
+./dt help zip-project
+./dt zip-project run .
 ```
 
 If you downloaded a ZIP (not a git clone) and `./dt` says `permission denied`, run:
 
 ```bash
-bash ./dt -install
+chmod +x dt bootstrap tools/*
 ```
-
-### Install notes
-
-- `dt -install` creates a symlink at `~/.local/bin/dt` pointing to this repo.
-- If `~/.local/bin` is not on your PATH, `dt -install` can offer to add it to your shell profile (zsh/bash).
-- If you already have a `dt` symlink from a different folder, `dt -install` will prompt to replace it.
 
 ## Included tools
 
@@ -59,7 +53,7 @@ dt ai-context new --name my-app --type android --size medium
 # Scan existing project
 dt ai-context scan .
 
-# Update with session summary  
+# Update with session summary
 dt ai-context update my-app ./session-notes.md
 
 # Check status
@@ -73,7 +67,37 @@ Customize by editing personal templates at `~/.dt/ai-context/context-library/per
 
 Print and optionally install a safe git alias set.
 
-Example:
+```bash
+dt git-aliases list
+dt git-aliases install
+```
+
+### prompt
+
+Install and manage a git-aware shell prompt with optional themes.
+
+```bash
+# Install prompt integration (adds a dt-managed block to your shell rc)
+dt prompt install
+
+# Switch prompt theme
+dt prompt use git
+dt prompt use minimal
+
+# List available prompt themes
+dt prompt list
+
+# Uninstall prompt integration
+dt prompt uninstall
+```
+
+The prompt is designed to be **dt-owned and reversible**:
+- All changes live inside a clearly marked block in your shell rc file
+- `dt prompt uninstall` cleanly removes everything it added
+
+### zip-project
+
+Create a share-friendly zip of a project (excludes common caches).
 
 ```bash
 dt zip-project run .
