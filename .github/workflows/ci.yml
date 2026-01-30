@@ -15,9 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sanity
-        run: echo "ok"
-
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -31,3 +28,11 @@ jobs:
         run: |
           chmod +x bootstrap dt tools/* || true
           bats test
+
+      - name: Report Status
+        if: always()
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: "CI / test"
+          conclusion: ${{ job.status }}
