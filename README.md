@@ -56,12 +56,17 @@ dt ai-context scan .
 # Update with session summary
 dt ai-context update my-app ./session-notes.md
 
+# Manage experimental context files
+dt ai-context labs status
+
 # Check status
 dt ai-context status
 ```
 
 The tool auto-installs a curated context library on first use at `~/.dt/ai-context/`.
 Customize by editing personal templates at `~/.dt/ai-context/context-library/personal/`.
+
+**Experimental features:** Add experimental context docs to `~/.dt/ai-context/context-library/labs/` to test them before promoting to stable categories. They'll be automatically loaded in your next context generation.
 
 ### git-aliases
 
