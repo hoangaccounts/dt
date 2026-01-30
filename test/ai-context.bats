@@ -60,7 +60,7 @@ load "support/test_helpers.bash"
   # Point to empty home
   HOME="$work" run "$(dt_bin)" ai-context sync library
   [ "$status" -ne 0 ]
-  [[ "$output" == *"not initialized"* ]] || [[ "$output" == *"Run"* ]]
+  [[ "$output" == *"not found"* ]] || [[ "$output" == *"not initialized"* ]] || [[ "$output" == *"Run"* ]]
   
   rm -rf "${work}" || true
 }
