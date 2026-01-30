@@ -22,6 +22,70 @@ sync_project_context() {
   print_info "Syncing project: $project_name"
   echo ""
   
+  # Check if library has updates available from bundled library
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" 2>/dev/null
+  local bundled_dir="$script_dir/context-library"
+  
+  if [[ -d "$bundled_dir" ]]; then
+    local updates_available=false
+    local new_files_count=0
+    local updated_files_count=0
+    
+    # Check for new or updated files
+    while IFS= read -r bundled_file; do
+      if [[ -n "$bundled_file" ]]; then
+        local filename
+        filename=$(basename "$bundled_file")
+        local user_file=""
+        
+        # Determine which directory this file belongs to
+        if [[ "$bundled_file" == *"/sw-foundations/"* ]]; then
+          user_file="$CONTEXT_LIBRARY_DIR/sw-foundations/$filename"
+        elif [[ "$bundled_file" == *"/workflow/"* ]]; then
+          user_file="$CONTEXT_LIBRARY_DIR/workflow/$filename"
+        fi
+        
+        if [[ ! -f "$user_file" ]]; then
+          # New file
+          new_files_count=$((new_files_count + 1))
+          updates_available=true
+        elif ! cmp -s "$bundled_file" "$user_file"; then
+          # Modified file
+          updated_files_count=$((updated_files_count + 1))
+          updates_available=true
+        fi
+      fi
+    done < <(find "$bundled_dir/sw-foundations" "$bundled_dir/workflow" -type f -name "*.md" 2>/dev/null)
+    
+    # Only prompt if there are actual updates
+    if [[ "$updates_available" == "true" ]]; then
+      echo "Library updates available:"
+      [[ $new_files_count -gt 0 ]] && echo "  • $new_files_count new file(s)"
+      [[ $updated_files_count -gt 0 ]] && echo "  • $updated_files_count updated file(s)"
+      echo ""
+      
+      local sync_choice
+      read -rp "Update your library before regenerating project? [Y/n]: " sync_choice
+      
+      case "$sync_choice" in
+        n|N|no|No|NO)
+          print_info "→ Skipping library update"
+          echo ""
+          ;;
+        *)
+          # Default to yes (empty input or y/Y/yes)
+          echo ""
+          print_info "→ Updating context library..."
+          sync_context_library "false" || {
+            print_warning "Library update failed, continuing with existing library"
+          }
+          echo ""
+          ;;
+      esac
+    fi
+  fi
+  
   # Create archive directory
   local archive_dir="$PROJECTS_DIR/archive"
   mkdir -p "$archive_dir"
@@ -124,12 +188,28 @@ sync_project_context() {
       "$VERSION")
   fi
   
-  # Append preserved history
+  # Insert preserved history BEFORE Context Library (not at end)
+  # This matches the behavior of the update command
   if [[ -n "$project_history" ]]; then
-    new_content+=$'\n\n---\n\n'
-    new_content+="# Project History"
-    new_content+=$'\n\n'
-    new_content+="$project_history"
+    # Find where "# Context Library" starts in new_content
+    local context_lib_marker="# Context Library"
+    
+    if [[ "$new_content" == *"$context_lib_marker"* ]]; then
+      # Split content at Context Library marker
+      local before_library="${new_content%%${context_lib_marker}*}"
+      local library_and_after="${new_content#*${context_lib_marker}}"
+      
+      # Reconstruct with history inserted before library
+      new_content="${before_library}"
+      new_content+=$'\n---\n\n'
+      new_content+="$project_history"
+      new_content+=$'\n\n'
+      new_content+="${context_lib_marker}${library_and_after}"
+    else
+      # Fallback: append at end if no Context Library marker found
+      new_content+=$'\n\n---\n\n'
+      new_content+="$project_history"
+    fi
   fi
   
   # Write new context file
