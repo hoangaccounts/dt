@@ -44,7 +44,7 @@ chmod +x dt bootstrap tools/*
 
 ### ai-context
 
-Generate rich context files for AI assistants (Claude, GPT, etc.) that include your coding standards, workflow preferences, personal expertise, and project-specific details.
+Generate rich context files for AI assistants (Claude, GPT, etc.) that include your coding standards, workflow preferences, personal expertise, and project-specific details. 
 
 ```bash
 # Create context for new project
