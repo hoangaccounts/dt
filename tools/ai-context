@@ -9,6 +9,7 @@
 #   dt ai-context update <project-name> <chat-summary-file>
 #   dt ai-context sync library [--dry-run]
 #   dt ai-context sync project <project-name>
+#   dt ai-context labs status
 #   dt ai-context status
 # DESCRIPTION: Combines foundation documentation (design principles, code standards,
 #   testing, deployment, personal context) with project-specific information to create
@@ -24,6 +25,7 @@
 #   sync library        Sync bundled library to user library (sw-foundations, workflow)
 #      --dry-run        Show what would be synced without applying changes
 #   sync project <n>    Regenerate project context with updated foundation (preserves history)
+#   labs status         Show experimental files in labs/ with ages, highlight files >30 days
 #   status              Show installation status
 # EXAMPLES:
 #   dt ai-context new --name shopping-app --type android --size medium
@@ -33,6 +35,7 @@
 #   dt ai-context sync library --dry-run
 #   dt ai-context sync library
 #   dt ai-context sync project shopping-app
+#   dt ai-context labs status
 # OUTPUT: Context markdown files saved to ~/.dt/ai-contexts/
 # SAFETY: non-destructive
 # DEPS: None (pure bash)
@@ -63,6 +66,7 @@ source "${LIB_DIR}/ui/auto-installer"
 source "${LIB_DIR}/ui/library-sync"
 source "${LIB_DIR}/ui/labs-setup"
 source "${LIB_DIR}/ui/labs-status"
+source "${LIB_DIR}/ui/labs-info"
 
 # Data layer (adapters)
 source "${LIB_DIR}/data/foundation-loader"
@@ -237,6 +241,9 @@ cmd_new() {
   
   echo ""
   print_success "Context created: $context_file"
+  
+  # Show labs info
+  show_labs_info
   
   # Prompt to view
   prompt_view_context "$context_file"
@@ -439,6 +446,9 @@ cmd_scan() {
   echo ""
   print_success "Context created: $context_file"
   
+  # Show labs info
+  show_labs_info
+  
   # Prompt to view
   prompt_view_context "$context_file"
   
@@ -489,6 +499,9 @@ cmd_update() {
   if append_chat_summary "$project_name" "$chat_summary"; then
     echo ""
     print_success "Context updated: $context_file"
+    
+    # Show labs info
+    show_labs_info
     
     # Prompt to view
     prompt_view_context "$context_file"
