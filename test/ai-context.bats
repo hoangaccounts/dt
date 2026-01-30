@@ -173,8 +173,8 @@ load "support/test_helpers.bash"
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-aicontext")"
   
   # Create labs folder and a test file
-  mkdir -p "$work/.dt/support/ai-context/context-library/labs"
-  echo "# Test Lab File" > "$work/.dt/support/ai-context/context-library/labs/test-lab.md"
+  mkdir -p "$work/.dt/ai-context/context-library/labs"
+  echo "# Test Lab File" > "$work/.dt/ai-context/context-library/labs/test-lab.md"
   
   # Run labs status
   HOME="$work" run "$(dt_bin)" ai-context labs status
@@ -198,8 +198,8 @@ load "support/test_helpers.bash"
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-aicontext")"
   
   # Create empty labs folder
-  mkdir -p "$work/.dt/support/ai-context/context-library/labs"
-  echo "# Labs README" > "$work/.dt/support/ai-context/context-library/labs/README.md"
+  mkdir -p "$work/.dt/ai-context/context-library/labs"
+  echo "# Labs README" > "$work/.dt/ai-context/context-library/labs/README.md"
   
   # Run labs status
   HOME="$work" run "$(dt_bin)" ai-context labs status
@@ -216,11 +216,11 @@ load "support/test_helpers.bash"
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-aicontext")"
   
   # Create labs with subdirectories
-  mkdir -p "$work/.dt/support/ai-context/context-library/labs/github"
-  mkdir -p "$work/.dt/support/ai-context/context-library/labs/android"
-  echo "# Labs README" > "$work/.dt/support/ai-context/context-library/labs/README.md"
-  echo "# GitHub Actions" > "$work/.dt/support/ai-context/context-library/labs/github/actions.md"
-  echo "# Android Gradle" > "$work/.dt/support/ai-context/context-library/labs/android/gradle.md"
+  mkdir -p "$work/.dt/ai-context/context-library/labs/github"
+  mkdir -p "$work/.dt/ai-context/context-library/labs/android"
+  echo "# Labs README" > "$work/.dt/ai-context/context-library/labs/README.md"
+  echo "# GitHub Actions" > "$work/.dt/ai-context/context-library/labs/github/actions.md"
+  echo "# Android Gradle" > "$work/.dt/ai-context/context-library/labs/android/gradle.md"
   
   # Run labs status
   HOME="$work" run "$(dt_bin)" ai-context labs status
