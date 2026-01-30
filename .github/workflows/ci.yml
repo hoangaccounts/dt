@@ -13,9 +13,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sanity
-        run: echo "ok"
-
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -24,11 +21,16 @@ jobs:
       - name: Shellcheck
         run: |
           shellcheck bootstrap dt tools/* || true
-        # NOTE:
-        # - If you want shellcheck to fail CI, remove the `|| true`.
-        # - Leaving it non-blocking in v0.1.0 is pragmatic while rules are tuned.
 
       - name: Run bats tests
         run: |
           chmod +x bootstrap dt tools/* || true
           bats test
+
+      - name: Report Status
+        if: always()
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: "CI / test"
+          conclusion: ${{ job.status }}
