@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# model/sync/project-sync - Regenerate project context with updated foundation
+#
+# Responsibility: Extract metadata/history, reload foundation, regenerate context
+# Dependencies: ui/output, ui/paths, ui/fs-operations, data/foundation-loader, model/context/*
+
+sync_project_context() {
+  local project_name=$1
+  
+  validate_context_library_exists || return 1
+  validate_project_name "$project_name" || return 1
+  
+  local context_file
+  context_file=$(generate_project_filepath "$project_name")
+  
+  if [[ ! -f "$context_file" ]]; then
+    print_error "Project not found: $project_name"
+    echo "Create project context first with: dt ai-context new or dt ai-context scan"
+    return 1
+  fi
+  
+  print_info "Syncing project: $project_name"
+  echo ""
+  
+  # Check if library has updates available from bundled library
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" 2>/dev/null
+  local bundled_dir="$script_dir/context-library"
+  
+  if [[ -d "$bundled_dir" ]]; then
+    local updates_available=false
+    local new_files_count=0
+    local updated_files_count=0
+    
+    # Check for new or updated files
+    while IFS= read -r bundled_file; do
+      if [[ -n "$bundled_file" ]]; then
+        local filename
+        filename=$(basename "$bundled_file")
+        local user_file=""
+        
+        # Determine which directory this file belongs to
+        if [[ "$bundled_file" == *"/sw-foundations/"* ]]; then
+          user_file="$CONTEXT_LIBRARY_DIR/sw-foundations/$filename"
+        elif [[ "$bundled_file" == *"/workflow/"* ]]; then
+          user_file="$CONTEXT_LIBRARY_DIR/workflow/$filename"
+        fi
+        
+        if [[ ! -f "$user_file" ]]; then
+          # New file
+          new_files_count=$((new_files_count + 1))
+          updates_available=true
+        elif ! cmp -s "$bundled_file" "$user_file"; then
+          # Modified file
+          updated_files_count=$((updated_files_count + 1))
+          updates_available=true
+        fi
+      fi
+    done < <(find "$bundled_dir/sw-foundations" "$bundled_dir/workflow" -type f -name "*.md" 2>/dev/null)
+    
+    # Only prompt if there are actual updates
+    if [[ "$updates_available" == "true" ]]; then
+      echo "Library updates available:"
+      [[ $new_files_count -gt 0 ]] && echo "  • $new_files_count new file(s)"
+      [[ $updated_files_count -gt 0 ]] && echo "  • $updated_files_count updated file(s)"
+      echo ""
+      
+      local sync_choice
+      read -rp "Update your library before regenerating project? [Y/n]: " sync_choice
+      
+      case "$sync_choice" in
+        n|N|no|No|NO)
+          print_info "→ Skipping library update"
+          echo ""
+          ;;
+        *)
+          # Default to yes (empty input or y/Y/yes)
+          echo ""
+          print_info "→ Updating context library..."
+          sync_context_library "false" || {
+            print_warning "Library update failed, continuing with existing library"
+          }
+          echo ""
+          ;;
+      esac
+    fi
+  fi
+  
+  # Create archive directory
+  local archive_dir="$PROJECTS_DIR/archive"
+  mkdir -p "$archive_dir"
+  
+  # Archive existing file
+  local timestamp
+  timestamp=$(date '+%Y%m%d-%H%M%S')
+  local archive_file="$archive_dir/${project_name}-context-${timestamp}.md"
+  
+  if copy_file "$context_file" "$archive_file"; then
+    print_info "→ Archived existing: $(basename "$archive_file")"
+  else
+    print_error "Failed to archive existing context"
+    return 1
+  fi
+  
+  # Extract project metadata
+  print_info "→ Extracting project metadata..."
+  local project_mode
+  project_mode=$(extract_metadata "$context_file" "Mode") || {
+    print_error "Failed to extract Mode"
+    return 1
+  }
+  
+  local project_type
+  project_type=$(extract_metadata "$context_file" "Type") || {
+    print_error "Failed to extract Type"
+    return 1
+  }
+  
+  local project_size
+  project_size=$(extract_metadata "$context_file" "Size") || {
+    print_error "Failed to extract Size"
+    return 1
+  }
+  
+  local project_features
+  project_features=$(extract_metadata "$context_file" "Features") || {
+    print_error "Failed to extract Features"
+    return 1
+  }
+  
+  local project_path
+  project_path=$(extract_metadata "$context_file" "Path") || true
+  
+  # Extract sections to preserve
+  print_info "→ Preserving project history..."
+  local project_history
+  project_history=$(extract_history_sections "$context_file")
+  
+  local history_count=0
+  if [[ -n "$project_history" ]]; then
+    history_count=$(echo "$project_history" | grep -c "^## Session:" || echo "0")
+    echo "  (Found $history_count session(s))"
+  fi
+  
+  # Reload foundation documentation
+  print_info "→ Reloading foundation documentation..."
+  local foundation
+  foundation=$(load_foundation_documentation "true" "true" "true")
+  
+  # Regenerate context based on mode
+  print_info "→ Regenerating context..."
+  local new_content
+  
+  if [[ "$project_mode" == "EXISTING PROJECT" ]] && [[ -n "$project_path" ]]; then
+    # For existing projects, we need to re-scan the project
+    if [[ ! -d "$project_path" ]]; then
+      print_warning "Project path no longer exists: $project_path"
+      print_info "Regenerating as NEW project instead..."
+      project_mode="NEW PROJECT"
+    else
+      local project_tree
+      project_tree=$(get_directory_tree "$project_path" 2)
+      
+      local key_files
+      key_files=$(extract_key_files "$project_path" "$project_type")
+      
+      new_content=$(build_existing_project_context \
+        "$project_name" \
+        "$project_type" \
+        "$project_size" \
+        "$project_features" \
+        "$project_path" \
+        "$project_tree" \
+        "$key_files" \
+        "$foundation" \
+        "$VERSION")
+    fi
+  fi
+  
+  # If not existing project or path doesn't exist, regenerate as new project
+  if [[ "$project_mode" != "EXISTING PROJECT" ]] || [[ ! -d "$project_path" ]]; then
+    new_content=$(build_new_project_context \
+      "$project_name" \
+      "$project_type" \
+      "$project_size" \
+      "$project_features" \
+      "$foundation" \
+      "$VERSION")
+  fi
+  
+  # Insert preserved history BEFORE Context Library (not at end)
+  # This matches the behavior of the update command
+  if [[ -n "$project_history" ]]; then
+    # Find where "# Context Library" starts in new_content
+    local context_lib_marker="# Context Library"
+    
+    if [[ "$new_content" == *"$context_lib_marker"* ]]; then
+      # Split content at Context Library marker
+      local before_library="${new_content%%${context_lib_marker}*}"
+      local library_and_after="${new_content#*${context_lib_marker}}"
+      
+      # Reconstruct with history inserted before library
+      new_content="${before_library}"
+      new_content+=$'\n---\n\n'
+      new_content+="$project_history"
+      new_content+=$'\n\n'
+      new_content+="${context_lib_marker}${library_and_after}"
+    else
+      # Fallback: append at end if no Context Library marker found
+      new_content+=$'\n\n---\n\n'
+      new_content+="$project_history"
+    fi
+  fi
+  
+  # Write new context file
+  write_context_file "$context_file" "$new_content"
+  
+  echo ""
+  print_success "Context updated: $context_file"
+  
+  echo ""
+  print_info "View changes with:"
+  echo "  diff $archive_file \\"
+  echo "       $context_file"
+  
+  return 0
+}
+
+extract_metadata() {
+  local file=$1
+  local field=$2
+  
+  # Extract value from markdown metadata lines
+  # Format: - **Field:** value  OR  **Field:** value
+  grep -E "^[-\*]*\s*\*\*${field}:\*\*" "$file" 2>/dev/null | \
+    sed -E "s/^[-\*]*\s*\*\*${field}:\*\*\s*//" | \
+    head -1
+}
+
+extract_history_sections() {
+  local file=$1
+  
+  # Extract everything between first "## Session:" and "# Context Library"
+  # or end of file if no Context Library section
+  
+  # Check if there are any sessions
+  if ! grep -q "^## Session:" "$file" 2>/dev/null; then
+    echo ""
+    return 0
+  fi
+  
+  # Find line numbers
+  local first_session_line
+  first_session_line=$(grep -n "^## Session:" "$file" | head -1 | cut -d: -f1)
+  
+  local context_library_line
+  context_library_line=$(grep -n "^# Context Library" "$file" | head -1 | cut -d: -f1)
+  
+  if [[ -z "$first_session_line" ]]; then
+    echo ""
+    return 0
+  fi
+  
+  # Extract the section
+  if [[ -n "$context_library_line" ]] && [[ $context_library_line -gt $first_session_line ]]; then
+    # Extract from first session to just before Context Library
+    sed -n "${first_session_line},$((context_library_line - 3))p" "$file"
+  else
+    # Extract from first session to end of file
+    tail -n +${first_session_line} "$file"
+  fi
+}

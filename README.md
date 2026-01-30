@@ -2,9 +2,9 @@
 
 A tiny, self-documenting toolbox of command-line utilities for day-to-day software development.
 
-- **Discover tools:** `./dt list`, `./dt tags`
-- **Read help:** `./dt help <tool>` or `./dt <tool>`
-- **Run tools:** `./dt <tool> [args...]`
+- **Discover tools:** `dt list`, `dt tags`
+- **Read help:** `dt help <tool>` or `dt <tool>`
+- **Run tools:** `dt <tool> [args...]`
 
 ## Install / Uninstall
 

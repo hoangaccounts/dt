@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# ui/library-sync - Sync bundled context library to user directory
+#
+# Responsibility: Compare and sync library files from bundled to user directory
+# Dependencies: ui/paths, ui/output, ui/fs-operations
+
+sync_context_library() {
+  local dry_run=${1:-false}
+  
+  print_info "Syncing context library..."
+  echo ""
+  
+  # Find bundled context-library
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || {
+    print_error "Failed to determine script directory"
+    return 1
+  }
+  local bundled_dir="$script_dir/context-library"
+  
+  if [[ ! -d "$bundled_dir" ]]; then
+    print_error "Bundled context library not found at: $bundled_dir"
+    return 1
+  fi
+  
+  if [[ ! -d "$CONTEXT_LIBRARY_DIR" ]]; then
+    print_error "User context library not initialized. Run 'dt ai-context new' first."
+    return 1
+  fi
+  
+  local new_count=0
+  local updated_count=0
+  local unchanged_count=0
+  
+  # Sync sw-foundations directory
+  if [[ -d "$bundled_dir/sw-foundations" ]]; then
+    print_info "Checking sw-foundations..."
+    sync_library_directory "$bundled_dir/sw-foundations" "$CONTEXT_LIBRARY_DIR/sw-foundations" "$dry_run" || {
+      print_error "Failed to sync sw-foundations"
+      return 1
+    }
+  fi
+  
+  # Sync workflow directory
+  if [[ -d "$bundled_dir/workflow" ]]; then
+    print_info "Checking workflow..."
+    sync_library_directory "$bundled_dir/workflow" "$CONTEXT_LIBRARY_DIR/workflow" "$dry_run" || {
+      print_error "Failed to sync workflow"
+      return 1
+    }
+  fi
+  
+  echo ""
+  print_info "Summary:"
+  echo "  [NEW]       $new_count files"
+  echo "  [UPDATED]   $updated_count files"
+  echo "  [UNCHANGED] $unchanged_count files"
+  
+  if [[ "$dry_run" == "true" ]]; then
+    echo ""
+    print_info "This was a dry run. Run without --dry-run to apply changes."
+    return 0
+  fi
+  
+  if [[ $new_count -eq 0 ]] && [[ $updated_count -eq 0 ]]; then
+    echo ""
+    print_success "Library is up to date!"
+  else
+    echo ""
+    print_success "Library synced successfully!"
+  fi
+}
+
+sync_library_directory() {
+  local source_dir=$1
+  local target_dir=$2
+  local dry_run=$3
+  
+  # Ensure target directory exists
+  if [[ "$dry_run" != "true" ]]; then
+    mkdir -p "$target_dir"
+  fi
+  
+  # Compare each file in source
+  while IFS= read -r source_file; do
+    if [[ -z "$source_file" ]]; then
+      continue
+    fi
+    
+    local filename
+    filename=$(basename "$source_file")
+    local target_file="$target_dir/$filename"
+    
+    if [[ ! -f "$target_file" ]]; then
+      # New file
+      echo "  [NEW] $filename"
+      new_count=$((new_count + 1))
+      
+      if [[ "$dry_run" != "true" ]]; then
+        cp "$source_file" "$target_file"
+      fi
+    elif ! cmp -s "$source_file" "$target_file"; then
+      # File exists but differs
+      echo "  [UPDATED] $filename"
+      updated_count=$((updated_count + 1))
+      
+      if [[ "$dry_run" != "true" ]]; then
+        cp "$source_file" "$target_file"
+      fi
+    else
+      # File unchanged
+      unchanged_count=$((unchanged_count + 1))
+    fi
+  done < <(find "$source_dir" -maxdepth 1 -type f -name "*.md" 2>/dev/null)
+}

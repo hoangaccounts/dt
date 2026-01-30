@@ -15,6 +15,19 @@ read_file_safe() {
   return 1
 }
 
+copy_file() {
+  local source=$1
+  local destination=$2
+  
+  if [[ ! -f "$source" ]]; then
+    return 1
+  fi
+  
+  mkdir -p "$(dirname "$destination")"
+  cp "$source" "$destination"
+  return $?
+}
+
 copy_directory_recursive() {
   local source=$1
   local destination=$2
