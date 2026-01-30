@@ -9,6 +9,7 @@
 #   dt ai-context update <project-name> <chat-summary-file>
 #   dt ai-context sync library [--dry-run]
 #   dt ai-context sync project <project-name>
+#   dt ai-context labs status
 #   dt ai-context status
 # DESCRIPTION: Combines foundation documentation (design principles, code standards,
 #   testing, deployment, personal context) with project-specific information to create
@@ -24,6 +25,7 @@
 #   sync library        Sync bundled library to user library (sw-foundations, workflow)
 #      --dry-run        Show what would be synced without applying changes
 #   sync project <n>    Regenerate project context with updated foundation (preserves history)
+#   labs status         Show experimental files in labs/ with ages, highlight files >30 days
 #   status              Show installation status
 # EXAMPLES:
 #   dt ai-context new --name shopping-app --type android --size medium
@@ -33,6 +35,7 @@
 #   dt ai-context sync library --dry-run
 #   dt ai-context sync library
 #   dt ai-context sync project shopping-app
+#   dt ai-context labs status
 # OUTPUT: Context markdown files saved to ~/.dt/ai-contexts/
 # SAFETY: non-destructive
 # DEPS: None (pure bash)
@@ -61,6 +64,9 @@ source "${LIB_DIR}/ui/personal-templates"
 source "${LIB_DIR}/ui/foundation-prompts"
 source "${LIB_DIR}/ui/auto-installer"
 source "${LIB_DIR}/ui/library-sync"
+source "${LIB_DIR}/ui/labs-setup"
+source "${LIB_DIR}/ui/labs-status"
+source "${LIB_DIR}/ui/labs-info"
 
 # Data layer (adapters)
 source "${LIB_DIR}/data/foundation-loader"
@@ -73,6 +79,7 @@ source "${LIB_DIR}/model/analysis/file-extractor"
 source "${LIB_DIR}/model/context/new-project"
 source "${LIB_DIR}/model/context/existing-project"
 source "${LIB_DIR}/model/context/updated-project"
+source "${LIB_DIR}/model/context/labs-status"
 source "${LIB_DIR}/model/sync"
 
 # Version constant
@@ -92,6 +99,13 @@ cmd_new() {
   if ! check_personal_templates_exist; then
     create_personal_templates
     prompt_edit_personal_templates
+  fi
+  
+  # Check and create labs folder if needed
+  if ! check_labs_exists; then
+    if prompt_create_labs; then
+      create_labs_folder
+    fi
   fi
   
   print_info "Creating context for NEW project"
@@ -227,6 +241,9 @@ cmd_new() {
   
   echo ""
   print_success "Context created: $context_file"
+  
+  # Show labs info
+  show_labs_info
   
   # Prompt to view
   prompt_view_context "$context_file"
@@ -429,6 +446,9 @@ cmd_scan() {
   echo ""
   print_success "Context created: $context_file"
   
+  # Show labs info
+  show_labs_info
+  
   # Prompt to view
   prompt_view_context "$context_file"
   
@@ -479,6 +499,9 @@ cmd_update() {
   if append_chat_summary "$project_name" "$chat_summary"; then
     echo ""
     print_success "Context updated: $context_file"
+    
+    # Show labs info
+    show_labs_info
     
     # Prompt to view
     prompt_view_context "$context_file"
@@ -533,6 +556,15 @@ cmd_status() {
   echo "  Projects:        $PROJECTS_DIR"
 }
 
+cmd_labs_status() {
+  # Get labs analysis data
+  local data
+  data=$(analyze_labs_files)
+  
+  # Display it
+  display_labs_status "$data"
+}
+
 cmd_sync() {
   local subcmd="${1:-}"
   shift || true
@@ -579,6 +611,13 @@ cmd_sync_library() {
   validate_context_library_exists || return 1
   
   sync_context_library "$dry_run"
+  
+  # Check and create labs folder if needed (after sync)
+  if ! check_labs_exists; then
+    if prompt_create_labs; then
+      create_labs_folder
+    fi
+  fi
 }
 
 cmd_sync_project() {
@@ -612,6 +651,26 @@ main() {
       ;;
     sync)
       cmd_sync "$@"
+      ;;
+    labs)
+      local labs_subcmd="${1:-}"
+      shift || true
+      
+      case "${labs_subcmd}" in
+        status)
+          cmd_labs_status "$@"
+          ;;
+        "")
+          print_error "Labs subcommand required"
+          echo "Usage: dt ai-context labs status"
+          exit 1
+          ;;
+        *)
+          print_error "Unknown labs subcommand: ${labs_subcmd}"
+          echo "Valid subcommands: status"
+          exit 1
+          ;;
+      esac
       ;;
     status)
       cmd_status "$@"

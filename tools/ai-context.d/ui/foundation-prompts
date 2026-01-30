@@ -133,3 +133,27 @@ prompt_view_context() {
       ;;
   esac
 }
+
+prompt_create_labs() {
+  echo ""
+  echo "Labs - Experimental Testing Ground:"
+  echo "  This is YOUR experimental testing ground for new context docs"
+  echo "  - Test new docs before committing to stable categories"
+  echo "  - Drop files in labs/, they load automatically"
+  echo "  - Promote to stable or delete after testing"
+  echo ""
+  
+  local choice
+  read -rp "Create labs/ folder? [y/n]: " choice
+  
+  case "$choice" in
+    n|N|no|No|NO|2)
+      print_info "✗ Skipping labs folder creation"
+      return 1
+      ;;
+    *)
+      print_info "✓ Creating labs folder"
+      return 0
+      ;;
+  esac
+}

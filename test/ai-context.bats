@@ -153,3 +153,82 @@ load "support/test_helpers.bash"
   
   rm -rf "${work}" || true
 }
+
+@test "ai-context labs status shows empty when no labs folder" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-aicontext")"
+  
+  # Run labs status before labs folder exists
+  HOME="$work" run "$(dt_bin)" ai-context labs status
+  
+  # Should succeed and mention labs doesn't exist or is empty
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Labs"* ]] || [[ "$output" == *"labs"* ]]
+  
+  rm -rf "${work}" || true
+}
+
+@test "ai-context labs status lists files with ages" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-aicontext")"
+  
+  # Create labs folder and a test file
+  mkdir -p "$work/.dt/ai-context/context-library/labs"
+  echo "# Test Lab File" > "$work/.dt/ai-context/context-library/labs/test-lab.md"
+  
+  # Run labs status
+  HOME="$work" run "$(dt_bin)" ai-context labs status
+  
+  # Should succeed and show the file
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"test-lab.md"* ]]
+  [[ "$output" == *"day"* ]] || [[ "$output" == *"today"* ]]
+  
+  rm -rf "${work}" || true
+}
+
+@test "ai-context labs requires subcommand" {
+  run "$(dt_bin)" ai-context labs
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"required"* ]] || [[ "$output" == *"subcommand"* ]]
+}
+
+@test "ai-context labs status works when labs is empty" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-aicontext")"
+  
+  # Create empty labs folder
+  mkdir -p "$work/.dt/ai-context/context-library/labs"
+  echo "# Labs README" > "$work/.dt/ai-context/context-library/labs/README.md"
+  
+  # Run labs status
+  HOME="$work" run "$(dt_bin)" ai-context labs status
+  
+  # Should succeed and mention empty
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"empty"* ]] || [[ "$output" == *"Empty"* ]]
+  
+  rm -rf "${work}" || true
+}
+
+@test "ai-context labs status shows files in subdirectories" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-aicontext")"
+  
+  # Create labs with subdirectories
+  mkdir -p "$work/.dt/ai-context/context-library/labs/github"
+  mkdir -p "$work/.dt/ai-context/context-library/labs/android"
+  echo "# Labs README" > "$work/.dt/ai-context/context-library/labs/README.md"
+  echo "# GitHub Actions" > "$work/.dt/ai-context/context-library/labs/github/actions.md"
+  echo "# Android Gradle" > "$work/.dt/ai-context/context-library/labs/android/gradle.md"
+  
+  # Run labs status
+  HOME="$work" run "$(dt_bin)" ai-context labs status
+  
+  # Should succeed and show files with subdirectory paths
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"github/actions.md"* ]]
+  [[ "$output" == *"android/gradle.md"* ]]
+  
+  rm -rf "${work}" || true
+}

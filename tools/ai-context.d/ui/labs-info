@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# ui/labs-info - Show labs information after context creation
+#
+# Responsibility: Display labs status and hints to user
+# Dependencies: ui/paths, ui/output
+
+show_labs_info() {
+  local labs_dir="$CONTEXT_LIBRARY_DIR/labs"
+  
+  # Check if labs exists
+  if [[ ! -d "$labs_dir" ]]; then
+    echo ""
+    print_info "💡 Want to test experimental context docs?"
+    echo "   Add .md files to: $labs_dir/"
+    echo "   They'll be automatically loaded in your next context generation."
+    return 0
+  fi
+  
+  # Get list of files (excluding README)
+  local files=()
+  while IFS= read -r file; do
+    local basename=$(basename "$file")
+    if [[ "$basename" != "README.md" ]]; then
+      files+=("$file")
+    fi
+  done < <(find "$labs_dir" -type f -name "*.md" 2>/dev/null | sort)
+  
+  # If no files in labs
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo ""
+    print_info "💡 Labs folder is empty"
+    echo "   Add experimental .md files to: $labs_dir/"
+    echo "   They'll be automatically loaded in your next context generation."
+    return 0
+  fi
+  
+  # Show files loaded from labs
+  echo ""
+  print_info "ℹ️  Loaded ${#files[@]} experimental file(s) from labs/"
+  
+  # Show first 5 files with relative paths
+  local count=0
+  for file in "${files[@]}"; do
+    if [[ $count -ge 5 ]]; then
+      local remaining=$((${#files[@]} - 5))
+      echo "   ... and $remaining more"
+      break
+    fi
+    
+    local relative_path="${file#$labs_dir/}"
+    echo "   - $relative_path"
+    ((count++))
+  done
+  
+  echo ""
+  echo "   Use 'dt ai-context labs status' to manage experimental docs."
+}
