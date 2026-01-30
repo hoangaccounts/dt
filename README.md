@@ -1,6 +1,6 @@
 # dt 
 
-A tiny, self-documenting toolbox of command-line utilities for day-to-day software development.
+A tiny, self-documenting toolbox of command-line utilities for day-to-day software developmentl. 
 
 - **Discover tools:** `dt list`, `dt tags`
 - **Read help:** `dt help <tool>` or `dt <tool>`
