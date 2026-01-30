@@ -8,6 +8,7 @@ load_foundation_documentation() {
   local include_sw_foundations=${1:-true}
   local include_workflow=${2:-true}
   local include_personal=${3:-true}
+  local include_labs=${4:-true}
   
   print_info "Loading selected documentation..."
   
@@ -47,6 +48,19 @@ load_foundation_documentation() {
         content+=$'\n\n'
       fi
     done < <(find "$CONTEXT_LIBRARY_DIR/workflow" -maxdepth 1 -type f -name "*.md" | sort)
+    
+    content+="---"
+    content+=$'\n\n'
+  fi
+  
+  # Load labs (if requested)
+  if [[ "$include_labs" == "true" ]] && [[ -d "$CONTEXT_LIBRARY_DIR/labs" ]]; then
+    while IFS= read -r file; do
+      if [[ -n "$file" ]]; then
+        content+="$(cat "$file" 2>/dev/null || true)"
+        content+=$'\n\n'
+      fi
+    done < <(find "$CONTEXT_LIBRARY_DIR/labs" -type f -name "*.md" ! -name "README.md" | sort)
     
     content+="---"
     content+=$'\n\n'

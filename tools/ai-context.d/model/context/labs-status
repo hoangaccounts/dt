@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# model/context/labs-status - Analyze labs files
+#
+# Responsibility: Get labs files and calculate their ages
+# Dependencies: ui/paths
+
+analyze_labs_files() {
+  local labs_dir="$CONTEXT_LIBRARY_DIR/labs"
+
+  # Check if labs exists
+  if [[ ! -d "$labs_dir" ]]; then
+    echo "NO_LABS_DIR"
+    return 0
+  fi
+
+  # Get all .md files except README (recursive)
+  local files=()
+  while IFS= read -r file; do
+    local basename=$(basename "$file")
+    if [[ "$basename" != "README.md" ]]; then
+      files+=("$file")
+    fi
+  done < <(find "$labs_dir" -type f -name "*.md" 2>/dev/null | sort)
+
+  # If no files, return empty
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo "NO_FILES"
+    return 0
+  fi
+
+  # Calculate age for each file
+  local current_time=$(date +%s)
+  local output=""
+
+  for file in "${files[@]}"; do
+    # Get relative path from labs dir
+    local relative_path="${file#$labs_dir/}"
+    local mod_time
+
+    # Get modification time (cross-platform)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      mod_time=$(stat -f "%m" "$file" 2>/dev/null || echo "0")
+    else
+      mod_time=$(stat -c "%Y" "$file" 2>/dev/null || echo "0")
+    fi
+
+    local age_seconds=$((current_time - mod_time))
+    local age_days=$((age_seconds / 86400))
+
+    # Format: relative_path|age_days
+    output+="${relative_path}|${age_days}"$'\n'
+  done
+
+  echo "$output"
+  return 0
+}

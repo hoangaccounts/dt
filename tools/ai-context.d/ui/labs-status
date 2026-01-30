@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# ui/labs-status - Display labs status
+#
+# Responsibility: Format and display labs file information
+# Dependencies: ui/output
+
+display_labs_status() {
+  local data="$1"
+  
+  # Handle special cases
+  if [[ "$data" == "NO_LABS_DIR" ]]; then
+    print_info "Labs folder does not exist yet."
+    echo "Create it with: dt ai-context new"
+    return 0
+  fi
+  
+  if [[ "$data" == "NO_FILES" ]]; then
+    print_info "Labs folder is empty."
+    echo ""
+    echo "Add experimental context files to: $CONTEXT_LIBRARY_DIR/labs/"
+    echo "They will be automatically loaded in your next ai-context generation."
+    return 0
+  fi
+  
+  # Display header
+  echo ""
+  echo "Labs Files:"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local has_old_files=false
+  
+  # Parse and display each file
+  while IFS='|' read -r filepath age_days; do
+    if [[ -z "$filepath" ]]; then
+      continue
+    fi
+    
+    # Format age display
+    local age_display
+    if [[ $age_days -eq 0 ]]; then
+      age_display="today"
+    elif [[ $age_days -eq 1 ]]; then
+      age_display="1 day old"
+    else
+      age_display="${age_days} days old"
+    fi
+    
+    # Highlight files older than 30 days
+    if [[ $age_days -gt 30 ]]; then
+      echo "  ⚠️  $filepath ($age_display)"
+      has_old_files=true
+    else
+      echo "  📄  $filepath ($age_display)"
+    fi
+  done <<< "$data"
+  
+  echo ""
+  
+  # Show action message if old files exist
+  if [[ "$has_old_files" == true ]]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    print_info "⚠️  Files older than 30 days should be reviewed:"
+    echo "  - Move valuable docs to stable folders (sw-foundations, workflow, platforms)"
+    echo "  - Delete docs that aren't useful"
+    echo ""
+  fi
+  
+  echo "Location: $CONTEXT_LIBRARY_DIR/labs/"
+  echo ""
+}
