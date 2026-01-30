@@ -1,9 +1,21 @@
 name: CI
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  name: CI
+
+  on:
+    pull_request:
+      branches: [ main ]
+    push:
+      branches: [ main ]
+
+  jobs:
+    test:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - run: echo "ok"
+
 
 jobs:
   test:
@@ -11,6 +23,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        echo: "ok"
 
       - name: Install dependencies
         run: |
