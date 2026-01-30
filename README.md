@@ -1,4 +1,4 @@
-# dt       
+# dt   
 
 A tiny, self-documenting toolbox of command-line utilities for day-to-day software developmentl. 
 
