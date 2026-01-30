@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Force consistent check name
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,9 +26,6 @@ jobs:
       - name: Shellcheck
         run: |
           shellcheck bootstrap dt tools/* || true
-        # NOTE:
-        # - If you want shellcheck to fail CI, remove the `|| true`.
-        # - Leaving it non-blocking in v0.1.0 is pragmatic while rules are tuned.
 
       - name: Run bats tests
         run: |
