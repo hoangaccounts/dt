@@ -8,8 +8,6 @@ A tiny, self-documenting toolbox of command-line utilities for day-to-day softwa
 
 ## Demo
 
-[![asciicast](https://asciinema.org/a/6kRz225VApQqnuLh.svg)](https://asciinema.org/a/6kRz225VApQqnuLh)
-
 ▶ Watch the terminal tour: https://asciinema.org/a/6kRz225VApQqnuLh
 
 ## Install / Uninstall
