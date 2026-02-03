@@ -8,7 +8,7 @@ A tiny, self-documenting toolbox of command-line utilities for day-to-day softwa
 
 ## Demo
 
-▶ Watch the terminal tour: https://asciinema.org/a/6kRz225VApQqnuLh
+[Demo: Watch the terminal tour on asciinema](https://asciinema.org/a/6kRz225VApQqnuLh)
 
 ## Install / Uninstall
 
