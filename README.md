@@ -6,6 +6,10 @@ A tiny, self-documenting toolbox of command-line utilities for day-to-day softwa
 - **Read help:** `dt help <tool>` or `dt <tool>`
 - **Run tools:** `dt <tool> [args...]`
 
+## Demo
+
+[![dt demo](https://asciinema.org/a/6kRz225VApQqnuLh.svg)](https://asciinema.org/a/6kRz225VApQqnuLh)
+
 ## Install / Uninstall
 
 See [`INSTALL.md`](INSTALL.md).
