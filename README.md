@@ -8,7 +8,7 @@ A tiny, self-documenting toolbox of command-line utilities for day-to-day softwa
 
 ## Install / Uninstall
 
-See [`INSTALL.md`](INSTALL.md).
+See [`INSTALL.md`](docs/INSTALL.md).
 
 ## Design goals
 
