@@ -9,7 +9,7 @@ get_baseline_files() {
 workflows/traceability.yml:.github/workflows/traceability.yml
 workflows/ci.yml:.github/workflows/ci.yml
 ci/test.sh:ci/test.sh
-PULL_REQUEST_TEMPLATE.md:PULL_REQUEST_TEMPLATE.md
+PULL_REQUEST_TEMPLATE.md:.github/PULL_REQUEST_TEMPLATE.md
 issue-templates/task.yml:.github/ISSUE_TEMPLATE/task.yml
 docs/project-planning-traceability.md:docs/project-planning-traceability.md
 EOF_LIST

@@ -189,7 +189,7 @@ add_github_remote() {
   [ -f "$work/.github/workflows/traceability.yml" ]
   [ -f "$work/.github/workflows/ci.yml" ]
   [ -f "$work/ci/test.sh" ]
-  [ -f "$work/PULL_REQUEST_TEMPLATE.md" ]
+  [ -f "$work/.github/PULL_REQUEST_TEMPLATE.md" ]
   [ -f "$work/docs/project-planning-traceability.md" ]
   
   rm -rf "$work"
@@ -625,7 +625,7 @@ add_github_remote() {
   # No files should be created
   [ ! -d "$work/.github/workflows" ]
   [ ! -d "$work/ci" ]
-  [ ! -f "$work/PULL_REQUEST_TEMPLATE.md" ]
+  [ ! -f "$work/.github/PULL_REQUEST_TEMPLATE.md" ]
   
   rm -rf "$work"
 }
