@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# ui/guided-checklist - Post-install guided setup
+#
+# Responsibility: Guide user through manual GitHub configuration
+# Dependencies: ui/output, ui/input, data/git-detector
+
+show_guided_checklist() {
+  local repo_root=$1
+  local project_key=$2
+  
+  echo ""
+  echo "════════════════════════════════════════"
+  echo "  Post-Install Configuration"
+  echo "════════════════════════════════════════"
+  echo ""
+  print_info "The baseline files are installed. Complete these manual steps:"
+  echo ""
+  
+  # Try to get GitHub repo path
+  local github_repo
+  if github_repo=$(get_github_repo_path "$repo_root"); then
+    show_branch_protection_step_with_url "$github_repo" "$project_key"
+    echo ""
+    show_labels_step_with_url "$github_repo"
+  else
+    show_branch_protection_step_generic "$project_key"
+    echo ""
+    show_labels_step_generic
+  fi
+  
+  echo ""
+  print_success "Setup complete!"
+  echo ""
+  print_info "Next steps:"
+  echo "  1. Create your first issue"
+  echo "  2. Make changes in a feature branch"
+  echo "  3. Open a PR following the template"
+  echo ""
+}
+
+show_branch_protection_step_with_url() {
+  local github_repo=$1
+  local project_key=$2
+  
+  echo "──────────────────────────────────────────"
+  echo "Step 1/2: Enable Branch Protection"
+  echo "──────────────────────────────────────────"
+  echo ""
+  echo "Instructions:"
+  echo "  1. Go to: https://github.com/${github_repo}/settings/branches"
+  echo "  2. Click 'Add rule' or 'Add branch protection rule'"
+  echo "  3. Branch name pattern: main"
+  echo "  4. Check ☑ 'Require a pull request before merging'"
+  echo "  5. Check ☑ 'Require status checks to pass before merging'"
+  echo "  6. Search for and add these status checks:"
+  echo "     • ci"
+  echo "     • traceability/pr-title"
+  echo "     • traceability/commit-subjects"
+  echo "     • traceability/type-label"
+  echo "     • traceability/issue-link"
+  echo "  7. (Optional) Check ☑ 'Require approvals' and set to 1"
+  echo "  8. Click 'Create' or 'Save changes'"
+  echo ""
+  
+  if prompt_yes_no "Complete" "n"; then
+    print_success "Branch protection configured"
+  else
+    print_info "Remember to complete this step later"
+  fi
+}
+
+show_branch_protection_step_generic() {
+  local project_key=$1
+  
+  echo "──────────────────────────────────────────"
+  echo "Step 1/2: Enable Branch Protection"
+  echo "──────────────────────────────────────────"
+  echo ""
+  echo "Instructions:"
+  echo "  1. Go to your GitHub repository"
+  echo "  2. Navigate to: Settings → Branches"
+  echo "  3. Click 'Add rule' or 'Add branch protection rule'"
+  echo "  4. Branch name pattern: main"
+  echo "  5. Check ☑ 'Require a pull request before merging'"
+  echo "  6. Check ☑ 'Require status checks to pass before merging'"
+  echo "  7. Search for and add these status checks:"
+  echo "     • ci"
+  echo "     • traceability/pr-title"
+  echo "     • traceability/commit-subjects"
+  echo "     • traceability/type-label"
+  echo "     • traceability/issue-link"
+  echo "  8. (Optional) Check ☑ 'Require approvals' and set to 1"
+  echo "  9. Click 'Create' or 'Save changes'"
+  echo ""
+  
+  if prompt_yes_no "Complete" "n"; then
+    print_success "Branch protection configured"
+  else
+    print_info "Remember to complete this step later"
+  fi
+}
+
+show_labels_step_with_url() {
+  local github_repo=$1
+  
+  echo "──────────────────────────────────────────"
+  echo "Step 2/2: Create Required Labels"
+  echo "──────────────────────────────────────────"
+  echo ""
+  echo "Instructions:"
+  echo "  1. Go to: https://github.com/${github_repo}/labels"
+  echo "  2. Create these labels (click 'New label' for each):"
+  echo ""
+  echo "     Label name         Color (hex)"
+  echo "     ─────────────────  ───────────"
+  echo "     type:feat          #0e8a16  (green)"
+  echo "     type:fix           #d73a4a  (red)"
+  echo "     type:docs          #0075ca  (blue)"
+  echo "     type:ci            #fbca04  (yellow)"
+  echo ""
+  echo "  3. (Optional) Create additional label:"
+  echo "     blocked            #6f42c1  (purple)"
+  echo ""
+  
+  if prompt_yes_no "Complete" "n"; then
+    print_success "Labels created"
+  else
+    print_info "Remember to complete this step later"
+  fi
+}
+
+show_labels_step_generic() {
+  echo "──────────────────────────────────────────"
+  echo "Step 2/2: Create Required Labels"
+  echo "──────────────────────────────────────────"
+  echo ""
+  echo "Instructions:"
+  echo "  1. Go to your GitHub repository"
+  echo "  2. Navigate to: Issues → Labels"
+  echo "  3. Create these labels (click 'New label' for each):"
+  echo ""
+  echo "     Label name         Color (hex)"
+  echo "     ─────────────────  ───────────"
+  echo "     type:feat          #0e8a16  (green)"
+  echo "     type:fix           #d73a4a  (red)"
+  echo "     type:docs          #0075ca  (blue)"
+  echo "     type:ci            #fbca04  (yellow)"
+  echo ""
+  echo "  4. (Optional) Create additional label:"
+  echo "     blocked            #6f42c1  (purple)"
+  echo ""
+  
+  if prompt_yes_no "Complete" "n"; then
+    print_success "Labels created"
+  else
+    print_info "Remember to complete this step later"
+  fi
+}

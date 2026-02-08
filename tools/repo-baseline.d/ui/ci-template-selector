@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# ui/ci-template-selector - Interactive CI template selection
+#
+# Responsibility: Prompt user to select CI test template
+# Dependencies: ui/output, ui/input, model/ci-template-registry
+#
+# Contract: Callers capture stdout via $(prompt_ci_template_selection).
+# Therefore, ALL UI must go to stderr and ONLY the final choice is printed to stdout.
+
+prompt_ci_template_selection() {
+  {
+    echo ""
+    echo "Select CI test template:"
+    echo "  1. Android"
+    echo "  2. iOS"
+    echo "  3. Node.js"
+    echo "  4. Python"
+    echo "  5. Go"
+    echo "  6. Rust"
+    echo "  7. Skip (use failing default)"
+    echo ""
+  } >&2
+
+  local choice
+  while true; do
+    choice=$(prompt_choice "Choice [1-7]" "1 2 3 4 5 6 7")
+    if [[ $? -eq 0 ]]; then
+      break
+    fi
+    print_error "Invalid choice. Please enter 1-7."
+  done
+
+  printf '%s\n' "$choice"
+}
+
+get_selected_template_file() {
+  local choice=$1
+  get_ci_template_by_choice "$choice"
+}

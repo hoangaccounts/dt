@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# ui/validators - Input validation
+#
+# Responsibility: Validate user inputs
+# Dependencies: ui/output
+
+validate_project_key() {
+  local key=$1
+  
+  # Pattern: ^[A-Z][A-Z0-9]{1,9}$
+  # - Must start with letter
+  # - 2-10 characters total
+  # - Only uppercase letters and numbers
+  
+  if [[ ! "$key" =~ ^[A-Z][A-Z0-9]{1,9}$ ]]; then
+    print_error "Invalid project key: '$key'"
+    echo "  Project keys must:" >&2
+    echo "    - Be 2-10 characters long" >&2
+    echo "    - Start with an uppercase letter" >&2
+    echo "    - Contain only uppercase letters and numbers" >&2
+    echo "  Examples: PROJ, MYAPP, API2" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+validate_repo_path() {
+  local path=$1
+  
+  if [[ ! -d "$path" ]]; then
+    print_error "Path not found: $path"
+    return 1
+  fi
+  
+  if [[ ! -d "$path/.git" ]]; then
+    print_error "Not a git repository: $path"
+    echo "  Create a repository first:" >&2
+    echo "    git init" >&2
+    echo "    git clone <repo-url>" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+validate_required_in_non_interactive() {
+  local value=$1
+  local name=$2
+  
+  if [[ -z "$value" ]]; then
+    print_error "--${name} is required in non-interactive mode"
+    return 1
+  fi
+  
+  return 0
+}

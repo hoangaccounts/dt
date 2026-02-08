@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# ui/input - User input prompts
+#
+# Responsibility: Prompt user for input
+# Dependencies: None
+#
+# Contract:
+# - Prompts MUST NOT pollute stdout because many callers capture stdout via $(...).
+# - Therefore, prompts go to stderr and only the chosen value is echoed to stdout.
+# - Reads come from stdin so tests can pipe input.
+
+prompt_for_text() {
+  local prompt_text="$1"
+  local default_value="${2:-}"
+
+  local prompt_line="$prompt_text"
+  if [[ -n "$default_value" ]]; then
+    prompt_line="$prompt_line [$default_value]"
+  fi
+
+  # Prompt to stderr so command substitution captures only the value.
+  printf '%s: ' "$prompt_line" >&2
+
+  local value=""
+  IFS= read -r value
+
+  if [[ -z "$value" ]] && [[ -n "$default_value" ]]; then
+    value="$default_value"
+  fi
+
+  printf '%s\n' "$value"
+}
+
+prompt_yes_no() {
+  local prompt_text="$1"
+  local default_value="${2:-n}"
+
+  local suffix='[y/N]'
+  if [[ "$default_value" == 'y' ]]; then
+    suffix='[Y/n]'
+  fi
+
+  while true; do
+    printf '%s %s: ' "$prompt_text" "$suffix" >&2
+
+    local response=""
+    IFS= read -r response
+
+    if [[ -z "$response" ]]; then
+      response="$default_value"
+    fi
+
+    response=$(printf '%s' "$response" | tr '[:upper:]' '[:lower:]')
+
+    if [[ "$response" == 'y' ]] || [[ "$response" == 'yes' ]]; then
+      return 0
+    fi
+    if [[ "$response" == 'n' ]] || [[ "$response" == 'no' ]]; then
+      return 1
+    fi
+
+    print_error "Invalid response. Enter y or n."
+  done
+}
+
+prompt_choice() {
+  local prompt_text="$1"
+  local valid_choices="$2"  # Space-separated list like "1 2 3"
+
+  printf '%s: ' "$prompt_text" >&2
+
+  local choice=""
+  IFS= read -r choice
+
+  for valid in $valid_choices; do
+    if [[ "$choice" == "$valid" ]]; then
+      printf '%s\n' "$choice"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+wait_for_enter() {
+  local prompt_text="${1:-Press Enter to continue...}"
+  printf '%s' "$prompt_text" >&2
+  IFS= read -r _
+}

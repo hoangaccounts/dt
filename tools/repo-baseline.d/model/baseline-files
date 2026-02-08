@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# model/baseline-files - Define files to install
+#
+# Responsibility: Define what files to install and their target locations
+# Dependencies: None (pure business logic)
+
+get_baseline_files() {
+  cat <<EOF_LIST
+workflows/traceability.yml:.github/workflows/traceability.yml
+workflows/ci.yml:.github/workflows/ci.yml
+ci/test.sh:ci/test.sh
+PULL_REQUEST_TEMPLATE.md:PULL_REQUEST_TEMPLATE.md
+issue-templates/task.yml:.github/ISSUE_TEMPLATE/task.yml
+docs/project-planning-traceability.md:docs/project-planning-traceability.md
+EOF_LIST
+}
+
+get_file_target() {
+  local source_template=$1
+  get_baseline_files | grep "^${source_template}:" | cut -d: -f2
+}
+
+get_all_targets() {
+  get_baseline_files | cut -d: -f2
+}
+
+count_baseline_files() {
+  get_baseline_files | wc -l | tr -d " "
+}
