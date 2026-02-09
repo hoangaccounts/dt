@@ -479,14 +479,15 @@ add_github_remote() {
   create_test_repo "$work"
   
   cd "$work"
-  # Answer: skip template (7), confirm step 1 (y), confirm step 2 (y)
-  run bash -c "printf '7\ny\ny\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
+  # Answer: skip template (7), confirm step 1 (y), confirm step 2 (y), confirm step 3 (y)
+  run bash -c "printf '7\ny\ny\ny\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
   
   [ "$status" -eq 0 ]
   
   # Should show step-by-step confirmation
-  [[ "$output" == *"Step 1/2"* ]]
-  [[ "$output" == *"Step 2/2"* ]]
+  [[ "$output" == *"Step 1/3"* ]]
+  [[ "$output" == *"Step 2/3"* ]]
+  [[ "$output" == *"Step 3/3"* ]]
   [[ "$output" == *"Complete? [y/n]"* ]]
   
   rm -rf "$work"

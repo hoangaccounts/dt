@@ -19,10 +19,12 @@ show_guided_checklist() {
   # Try to get GitHub repo path
   local github_repo
   if github_repo=$(get_github_repo_path "$repo_root"); then
+    show_push_baseline_step_with_url "$github_repo"
     show_branch_protection_step_with_url "$github_repo" "$project_key"
     echo ""
     show_labels_step_with_url "$github_repo"
   else
+    show_push_baseline_step_generic
     show_branch_protection_step_generic "$project_key"
     echo ""
     show_labels_step_generic
@@ -38,12 +40,57 @@ show_guided_checklist() {
   echo ""
 }
 
+show_push_baseline_step_with_url() {
+  local github_repo=$1
+
+  echo "──────────────────────────────────────────"
+  echo "Step 1/3: Push Baseline to GitHub"
+  echo "──────────────────────────────────────────"
+  echo ""
+  echo "Why: GitHub must run the workflows at least once before the required status checks"
+  echo "     appear in Branch Protection settings."
+  echo ""
+  echo "Instructions:"
+  echo "  1. Commit the installed baseline files"
+  echo "  2. Push to GitHub (typically to main once, before Branch Protection is enabled)"
+  echo "  3. Wait for Actions to finish at least once"
+  echo "  4. Confirm checks exist at: https://github.com/${github_repo}/actions"
+  echo ""
+
+  if prompt_yes_no "Complete" "n"; then
+    print_success "Baseline pushed and Actions ran"
+  else
+    print_info "Complete this step before configuring Branch Protection"
+  fi
+}
+
+show_push_baseline_step_generic() {
+  echo "──────────────────────────────────────────"
+  echo "Step 1/3: Push Baseline to GitHub"
+  echo "──────────────────────────────────────────"
+  echo ""
+  echo "Why: GitHub must run the workflows at least once before the required status checks"
+  echo "     appear in Branch Protection settings."
+  echo ""
+  echo "Instructions:"
+  echo "  1. Commit the installed baseline files"
+  echo "  2. Push to GitHub (typically to main once, before Branch Protection is enabled)"
+  echo "  3. Wait for Actions to finish at least once"
+  echo ""
+
+  if prompt_yes_no "Complete" "n"; then
+    print_success "Baseline pushed and Actions ran"
+  else
+    print_info "Complete this step before configuring Branch Protection"
+  fi
+}
+
 show_branch_protection_step_with_url() {
   local github_repo=$1
   local project_key=$2
   
   echo "──────────────────────────────────────────"
-  echo "Step 1/2: Enable Branch Protection"
+  echo "Step 2/3: Enable Branch Protection"
   echo "──────────────────────────────────────────"
   echo ""
   echo "Instructions:"
@@ -73,7 +120,7 @@ show_branch_protection_step_generic() {
   local project_key=$1
   
   echo "──────────────────────────────────────────"
-  echo "Step 1/2: Enable Branch Protection"
+  echo "Step 2/3: Enable Branch Protection"
   echo "──────────────────────────────────────────"
   echo ""
   echo "Instructions:"
@@ -104,7 +151,7 @@ show_labels_step_with_url() {
   local github_repo=$1
   
   echo "──────────────────────────────────────────"
-  echo "Step 2/2: Create Required Labels"
+  echo "Step 3/3: Create Required Labels"
   echo "──────────────────────────────────────────"
   echo ""
   echo "Instructions:"
@@ -131,7 +178,7 @@ show_labels_step_with_url() {
 
 show_labels_step_generic() {
   echo "──────────────────────────────────────────"
-  echo "Step 2/2: Create Required Labels"
+  echo "Step 3/3: Create Required Labels"
   echo "──────────────────────────────────────────"
   echo ""
   echo "Instructions:"
