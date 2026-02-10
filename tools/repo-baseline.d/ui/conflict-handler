@@ -45,36 +45,26 @@ prompt_conflict_resolution() {
   print_warning "File exists with different content: $target_path" >&2
   echo "" >&2
   echo "Options:" >&2
-  echo "  [o] Overwrite (creates timestamped backup)" >&2
-  echo "  [s] Skip (keep existing file)" >&2
-  echo "  [d] Show diff" >&2
-  echo "  [a] Abort installation" >&2
+  echo "  [r] Replace with baseline file (backup created)" >&2
+  echo "  [k] Keep existing file" >&2
+  echo "  [a] Abort setup" >&2
   echo "" >&2
   
   while true; do
     local choice
-    if ! choice=$(prompt_choice "Choice [o/s/d/a]" "o s d a O S D A"); then
-      echo "Invalid choice. Please enter o, s, d, or a." >&2
+    if ! choice=$(prompt_choice "Choice [r/k/a]" "r k a R K A"); then
+      echo "Invalid choice. Please enter r, k, or a." >&2
       continue
     fi
 
     case "$choice" in
-      o|O)
+      r|R)
         echo "overwrite"
         return 0
         ;;
-      s|S)
+      k|K)
         echo "skip"
         return 0
-        ;;
-      d|D)
-        show_diff "$full_path" "$new_content"
-        echo "Options:" >&2
-        echo "  [o] Overwrite (creates timestamped backup)" >&2
-        echo "  [s] Skip (keep existing file)" >&2
-        echo "  [d] Show diff" >&2
-        echo "  [a] Abort installation" >&2
-        echo "" >&2
         ;;
       a|A)
         echo "abort"

@@ -268,8 +268,8 @@ add_github_remote() {
   echo "different content" > "$work/.github/workflows/ci.yml"
   
   cd "$work"
-  # Answer: skip (s), then skip CI template (7), skip checklist (n, n)
-  run bash -c "printf 's\n7\nn\nn\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
+  # Answer: keep existing (k), then skip CI template (7), skip checklist (n, n)
+  run bash -c "printf 'k\n7\nn\nn\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
   
   [ "$status" -eq 0 ]
   # Should show conflict prompt
@@ -597,11 +597,11 @@ echo "custom"
 EOF
   chmod +x "$work/ci/test.sh"
 
-  # Rerun: reuse existing key, skip ci/test.sh conflict, then checklist prompts.
-  run bash -c "printf 'y\ns\nn\nn\nn\n' | '$(dt_bin)' repo-baseline setup 2>&1"
+  # Rerun: reuse existing key, keep existing ci/test.sh conflict choice, then checklist prompts.
+  run bash -c "printf 'y\nk\nn\nn\nn\n' | '$(dt_bin)' repo-baseline setup 2>&1"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Choice [o/s/d/a]"* ]]
+  [[ "$output" == *"Choice [r/k/a]"* ]]
   [[ "$output" == *"Keeping existing ci/test.sh; skipping CI template selection."* ]]
   [[ "$output" != *"Select CI test template:"* ]]
   grep -q 'echo "custom"' "$work/ci/test.sh"
