@@ -55,3 +55,38 @@ validate_required_in_non_interactive() {
   
   return 0
 }
+
+resolve_physical_path() {
+  local path=$1
+  if [[ -z "$path" ]]; then
+    return 1
+  fi
+
+  (cd "$path" 2>/dev/null && pwd -P) || return 1
+}
+
+validate_auto_detected_repo_root() {
+  local repo_root=$1
+
+  local canonical_repo_root
+  canonical_repo_root=$(resolve_physical_path "$repo_root") || return 0
+
+  if [[ "$canonical_repo_root" == "/" ]]; then
+    print_error "Refusing to auto-detect '/' as repository root"
+    echo "  Use --repo <path> to choose the repository explicitly." >&2
+    return 1
+  fi
+
+  local home_root=""
+  if [[ -n "${HOME:-}" ]]; then
+    home_root=$(resolve_physical_path "$HOME" || true)
+  fi
+
+  if [[ -n "$home_root" ]] && [[ "$canonical_repo_root" == "$home_root" ]]; then
+    print_error "Refusing to auto-detect HOME as repository root: $canonical_repo_root"
+    echo "  Use --repo <path> to choose the repository explicitly." >&2
+    return 1
+  fi
+
+  return 0
+}

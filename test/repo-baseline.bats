@@ -84,6 +84,39 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: rejects auto-detected HOME as repo root" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+  mkdir -p "$work/subdir"
+
+  cd "$work/subdir"
+  run env HOME="$work" "$(dt_bin)" repo-baseline setup --dry-run --non-interactive --project-key TEST
+
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"HOME"* ]]
+  [[ "$output" == *"--repo"* ]]
+
+  rm -rf "$work"
+}
+
+@test "repo-baseline setup: allows HOME repo when --repo is explicit" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+  mkdir -p "$work/subdir"
+
+  cd "$work/subdir"
+  run env HOME="$work" "$(dt_bin)" repo-baseline setup --repo "$work" --dry-run --non-interactive --project-key TEST
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$work"* ]]
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: fails outside git repo with clear message" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"

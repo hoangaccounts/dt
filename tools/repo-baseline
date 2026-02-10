@@ -115,6 +115,10 @@ cmd_setup() {
       echo "  dt repo-baseline setup --repo <path>" >&2
       exit 1
     fi
+
+    if ! validate_auto_detected_repo_root "$repo_root"; then
+      exit 1
+    fi
   fi
   
   print_info "Repository: $repo_root"
@@ -288,6 +292,10 @@ cmd_status() {
   else
     if ! repo_root=$(detect_git_repo_root "."); then
       print_error "No git repository found"
+      exit 1
+    fi
+
+    if ! validate_auto_detected_repo_root "$repo_root"; then
       exit 1
     fi
   fi
