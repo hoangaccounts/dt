@@ -1,4 +1,4 @@
-# Project Planning & Traceability
+# PR Workflow Guide
 
 This project uses **repo-baseline** to enforce disciplined PR workflows.
 
@@ -7,19 +7,19 @@ This project uses **repo-baseline** to enforce disciplined PR workflows.
 ### 1. PR Title Format
 All pull requests must follow this format:
 ```
-{{PROJECT_KEY}}-123 Brief description of changes
+DT-123 Brief description of changes
 ```
 
 Example:
 ```
-{{PROJECT_KEY}}-42 Add user authentication
+DT-42 Add user authentication
 ```
 
 ### 2. Commit Messages
 Every commit subject must start with the issue reference in brackets:
 ```
-[{{PROJECT_KEY}}-123] Implement login screen
-[{{PROJECT_KEY}}-123] Add tests for authentication
+[DT-123] Implement login screen
+[DT-123] Add tests for authentication
 ```
 
 Local enforcement:

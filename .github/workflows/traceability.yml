@@ -1,0 +1,126 @@
+name: Traceability
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-title:
+    # NOTE: This job name is a locked contract. Branch protection depends on it.
+    name: traceability/pr-title
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check PR title format
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          # Expected format: DT-123 Description
+          if echo "$PR_TITLE" | grep -qE '^DT-[0-9]+ '; then
+            echo "✓ PR title format correct: $PR_TITLE"
+            exit 0
+          else
+            echo "✗ PR title must start with: DT-<number> "
+            echo "  Example: DT-123 Add user authentication"
+            echo "  Current: $PR_TITLE"
+            exit 1
+          fi
+
+  commit-subjects:
+    # NOTE: This job name is a locked contract. Branch protection depends on it.
+    name: traceability/commit-subjects
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # We need history to inspect commit subjects.
+          fetch-depth: 0
+
+      - name: Check commit subjects
+        run: |
+          # Get commits in this PR
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
+          echo "Checking commits from $BASE_SHA to $HEAD_SHA"
+
+          # Ensure the base/head SHAs are present locally.
+          git fetch --no-tags --prune origin "$BASE_SHA" "$HEAD_SHA" >/dev/null 2>&1 || true
+          
+          FAILED=0
+          while IFS= read -r subject; do
+            if echo "$subject" | grep -qE '^\[DT-[0-9]+\][[:space:]]+.+$'; then
+              echo "✓ $subject"
+            else
+              echo "✗ Commit subject must start with issue reference: $subject"
+              echo "  Expected format: [DT-123] Commit message"
+              FAILED=1
+            fi
+          done < <(git log --format=%s "$BASE_SHA..$HEAD_SHA")
+          
+          if [ "$FAILED" -eq 1 ]; then
+            exit 1
+          fi
+
+  issue-link:
+    # NOTE: This job name is a locked contract. Branch protection depends on it.
+    name: traceability/issue-link
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check issue link
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          
+          if printf '%s\n' "${PR_BODY:-}" | grep -qiE '(closes|fixes) #[0-9]+'; then
+            echo "✓ PR links to issue"
+            exit 0
+          else
+            echo "✗ PR body must link to an issue"
+            echo "  Add one of:"
+            echo "    Closes #123"
+            echo "    Fixes #456"
+            exit 1
+          fi
+
+  type-label:
+    # NOTE: This job name is a locked contract. Branch protection depends on it.
+    name: traceability/type-label
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check type label
+        env:
+          LABELS_API_URL: ${{ github.event.pull_request.issue_url }}/labels
+        run: |
+          set -euo pipefail
+
+          LABELS_JSON=$(curl -fsSL \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "$LABELS_API_URL")
+
+          LABELS=$(printf '%s' "$LABELS_JSON" | jq -r '.[].name')
+          TYPE_LABELS=$(printf '%s\n' "$LABELS" | grep -E '^type:' || true)
+          TYPE_COUNT=$(printf '%s\n' "$TYPE_LABELS" | awk 'NF {count++} END {print count+0}')
+          
+          if [ "$TYPE_COUNT" -eq 1 ]; then
+            echo "✓ PR has exactly one type label: $TYPE_LABELS"
+            exit 0
+          elif [ "$TYPE_COUNT" -eq 0 ]; then
+            echo "✗ PR must have exactly one type label"
+            echo "  Required labels: type:feat, type:fix, type:docs, or type:ci"
+            exit 1
+          else
+            echo "✗ PR has multiple type labels:"
+            printf '%s\n' "$TYPE_LABELS"
+            echo "  Only one type label allowed"
+            exit 1
+          fi
