@@ -1,3 +1,9 @@
+---
+layout: default
+title: PR Workflow Guide
+permalink: /docs/pr-workflow-guide/
+---
+
 # PR Workflow Guide
 
 This project uses **repo-baseline** to enforce disciplined PR workflows.

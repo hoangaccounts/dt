@@ -1,3 +1,9 @@
+---
+layout: default
+title: repo-baseline README
+permalink: /docs/repo-baseline/
+---
+
 # repo-baseline README
 
 ## Purpose

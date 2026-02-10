@@ -1,3 +1,9 @@
+---
+layout: default
+title: INSTALL
+permalink: /docs/install/
+---
+
 # INSTALL
 
 This repo is intentionally low-friction: it runs directly from the cloned folder, and the optional
