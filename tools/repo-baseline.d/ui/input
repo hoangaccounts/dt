@@ -63,6 +63,27 @@ prompt_yes_no() {
   done
 }
 
+prompt_yes_no_required() {
+  local prompt_text="$1"
+
+  while true; do
+    printf '%s [y/n]: ' "$prompt_text" >&2
+
+    local response=""
+    IFS= read -r response
+    response=$(printf '%s' "$response" | tr '[:upper:]' '[:lower:]')
+
+    if [[ "$response" == 'y' ]] || [[ "$response" == 'yes' ]]; then
+      return 0
+    fi
+    if [[ "$response" == 'n' ]] || [[ "$response" == 'no' ]]; then
+      return 1
+    fi
+
+    print_error "Invalid response. Enter y or n."
+  done
+}
+
 prompt_choice() {
   local prompt_text="$1"
   local valid_choices="$2"  # Space-separated list like "1 2 3"

@@ -455,7 +455,7 @@ add_github_remote() {
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Detected existing project key: TEST"* ]]
-  [[ "$output" == *"Use existing project key?"* ]]
+  [[ "$output" == *"Use existing project key? [y/n]:"* ]]
   [[ "$output" == *"Project key: TEST"* ]]
 
   grep -q "TEST" "$work/.github/workflows/traceability.yml"

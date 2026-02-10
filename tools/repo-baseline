@@ -139,7 +139,7 @@ cmd_setup() {
       fi
     elif [[ -n "$detected_project_key" ]]; then
       print_info "Detected existing project key: $detected_project_key"
-      if prompt_yes_no "Use existing project key?" "y"; then
+      if prompt_yes_no_required "Use existing project key?"; then
         project_key="$detected_project_key"
       else
         echo ""
