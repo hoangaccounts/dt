@@ -54,10 +54,10 @@ jobs:
           
           FAILED=0
           while IFS= read -r subject; do
-            if echo "$subject" | grep -qE '\[{{PROJECT_KEY}}-[0-9]+\]'; then
+            if echo "$subject" | grep -qE '^\[{{PROJECT_KEY}}-[0-9]+\][[:space:]]+.+$'; then
               echo "✓ $subject"
             else
-              echo "✗ Missing issue reference: $subject"
+              echo "✗ Commit subject must start with issue reference: $subject"
               echo "  Expected format: [{{PROJECT_KEY}}-123] Commit message"
               FAILED=1
             fi

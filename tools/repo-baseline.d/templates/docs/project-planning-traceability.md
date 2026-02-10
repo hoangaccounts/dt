@@ -16,7 +16,7 @@ Example:
 ```
 
 ### 2. Commit Messages
-Every commit subject must include the issue reference in brackets:
+Every commit subject must start with the issue reference in brackets:
 ```
 [{{PROJECT_KEY}}-123] Implement login screen
 [{{PROJECT_KEY}}-123] Add tests for authentication

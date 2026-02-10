@@ -346,6 +346,22 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: commit subject rule requires issue key at start" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  run bash -c "printf '7\nn\nn\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
+
+  [ "$status" -eq 0 ]
+  [ -f "$work/.github/workflows/traceability.yml" ]
+  grep -Fq "^\[TEST-[0-9]+\][[:space:]]+.+$" "$work/.github/workflows/traceability.yml"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: fails on unknown placeholder in template" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
