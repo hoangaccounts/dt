@@ -229,7 +229,7 @@ cmd_setup() {
   # - tests may pipe input expecting conflict resolution first
   if [[ "$dry_run" == "false" ]] && [[ "$non_interactive" == "false" ]]; then
     local choice
-    choice=$(prompt_ci_template_selection)
+    choice=$(prompt_ci_template_selection "$repo_root")
     local selected_template
     selected_template=$(get_selected_template_file "$choice")
 

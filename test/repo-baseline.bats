@@ -464,11 +464,48 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: CI template selector defaults to skip on empty input" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  # Empty choice should default to 7 (skip)
+  run bash -c "printf '\nn\nn\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
+
+  [ "$status" -eq 0 ]
+  [ -f "$work/ci/test.sh" ]
+  grep -q "Tests are not configured yet" "$work/ci/test.sh"
+
+  rm -rf "$work"
+}
+
+@test "repo-baseline setup: warns before installing mismatched CI template" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  # Choose Android (1), decline mismatch install (n), then choose skip (7)
+  run bash -c "printf '1\nn\n7\nn\nn\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Selected template may not match repository markers"* ]]
+  [ -f "$work/ci/test.sh" ]
+  ! grep -q "gradlew" "$work/ci/test.sh"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: Android template installs gradle command" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
   
   create_test_repo "$work"
+  touch "$work/gradlew"
+  chmod +x "$work/gradlew"
   
   cd "$work"
   # Choose option 1 (Android)
@@ -487,6 +524,9 @@ add_github_remote() {
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
   
   create_test_repo "$work"
+  cat > "$work/package.json" <<'EOF'
+{"name":"demo","version":"1.0.0"}
+EOF
   
   cd "$work"
   # Choose option 3 (Node)
