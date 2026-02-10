@@ -97,13 +97,19 @@ jobs:
 
     steps:
       - name: Check type label
+        env:
+          LABELS_API_URL: ${{ github.event.pull_request.issue_url }}/labels
         run: |
-          LABELS=$(curl -sS -H "Authorization: Bearer ${{ github.token }}" \
+          set -euo pipefail
+
+          LABELS_JSON=$(curl -fsSL \
+            -H "Authorization: Bearer ${{ github.token }}" \
             -H "Accept: application/vnd.github+json" \
-            "${{ github.event.pull_request.labels_url }}" | jq -r '.[].name')
-          
-          TYPE_LABELS=$(echo "$LABELS" | grep -E '^type:' || true)
-          TYPE_COUNT=$(echo "$TYPE_LABELS" | grep -c . || echo 0)
+            "$LABELS_API_URL")
+
+          LABELS=$(printf '%s' "$LABELS_JSON" | jq -r '.[].name')
+          TYPE_LABELS=$(printf '%s\n' "$LABELS" | grep -E '^type:' || true)
+          TYPE_COUNT=$(printf '%s\n' "$TYPE_LABELS" | awk 'NF {count++} END {print count+0}')
           
           if [ "$TYPE_COUNT" -eq 1 ]; then
             echo "✓ PR has exactly one type label: $TYPE_LABELS"
@@ -114,7 +120,7 @@ jobs:
             exit 1
           else
             echo "✗ PR has multiple type labels:"
-            echo "$TYPE_LABELS"
+            printf '%s\n' "$TYPE_LABELS"
             echo "  Only one type label allowed"
             exit 1
           fi

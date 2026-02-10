@@ -423,6 +423,24 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: type-label workflow uses issue labels API and robust count" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+
+  [ "$status" -eq 0 ]
+  [ -f "$work/.github/workflows/traceability.yml" ]
+  grep -Fq "LABELS_API_URL: \${{ github.event.pull_request.issue_url }}/labels" "$work/.github/workflows/traceability.yml"
+  ! grep -Fq "pull_request.labels_url" "$work/.github/workflows/traceability.yml"
+  grep -Fq "TYPE_COUNT=\$(printf '%s\\n' \"\$TYPE_LABELS\" | awk 'NF {count++} END {print count+0}')" "$work/.github/workflows/traceability.yml"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: fails on unknown placeholder in template" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
