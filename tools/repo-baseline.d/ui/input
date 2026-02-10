@@ -35,10 +35,7 @@ prompt_yes_no() {
   local prompt_text="$1"
   local default_value="${2:-n}"
 
-  local suffix='[y/N]'
-  if [[ "$default_value" == 'y' ]]; then
-    suffix='[Y/n]'
-  fi
+  local suffix='[y/n]'
 
   while true; do
     printf '%s %s: ' "$prompt_text" "$suffix" >&2
