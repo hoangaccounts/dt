@@ -112,7 +112,7 @@ show_branch_protection_step_with_url() {
   echo "  If GitHub shows a warning that rulesets are not enforced for this repository"
   echo "  (for example on some private-repo plans), direct pushes to main may bypass"
   echo "  CI and traceability checks. In that case, use strict PR-only workflow"
-  echo "  discipline and local hooks."
+  echo "  discipline and keep this repo's commit-msg hook enabled."
   echo ""
   
   if prompt_yes_no "Complete" "n"; then
@@ -149,7 +149,7 @@ show_branch_protection_step_generic() {
   echo "  If GitHub shows a warning that rulesets are not enforced for this repository"
   echo "  (for example on some private-repo plans), direct pushes to main may bypass"
   echo "  CI and traceability checks. In that case, use strict PR-only workflow"
-  echo "  discipline and local hooks."
+  echo "  discipline and keep this repo's commit-msg hook enabled."
   echo ""
   
   if prompt_yes_no "Complete" "n"; then
