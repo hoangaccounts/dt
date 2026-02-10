@@ -441,6 +441,51 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: offers to reuse existing project key" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+  [ "$status" -eq 0 ]
+
+  run bash -c "printf 'y\n7\nn\nn\n' | '$(dt_bin)' repo-baseline setup 2>&1"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Detected existing project key: TEST"* ]]
+  [[ "$output" == *"Use existing project key?"* ]]
+  [[ "$output" == *"Project key: TEST"* ]]
+
+  grep -q "TEST" "$work/.github/workflows/traceability.yml"
+
+  rm -rf "$work"
+}
+
+@test "repo-baseline setup: can overwrite existing project key interactively" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+  [ "$status" -eq 0 ]
+
+  run bash -c "printf 'n\nNEW2\n7\nn\nn\n' | '$(dt_bin)' repo-baseline setup --force 2>&1"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Detected existing project key: TEST"* ]]
+  [[ "$output" == *"Enter new project key to overwrite existing configuration."* ]]
+  [[ "$output" == *"Project key: NEW2"* ]]
+
+  grep -q "NEW2" "$work/.github/workflows/traceability.yml"
+  ! grep -q "TEST-<number>" "$work/.github/workflows/traceability.yml"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: fails on unknown placeholder in template" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
@@ -770,6 +815,24 @@ EOF
   
   [ "$status" -eq 0 ]
   
+  rm -rf "$work"
+}
+
+@test "repo-baseline setup: --non-interactive reuses existing project key" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+  [ "$status" -eq 0 ]
+
+  run "$(dt_bin)" repo-baseline setup --non-interactive --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Using existing project key: TEST"* ]]
+  [[ "$output" == *"{{PROJECT_KEY}} → TEST"* ]]
+
   rm -rf "$work"
 }
 

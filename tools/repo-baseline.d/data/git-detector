@@ -76,6 +76,23 @@ get_local_hooks_path() {
   git -C "$repo_root" config --local --get core.hooksPath 2>/dev/null || true
 }
 
+detect_existing_project_key() {
+  local repo_root=$1
+  local traceability_file="${repo_root}/.github/workflows/traceability.yml"
+
+  if [[ ! -f "$traceability_file" ]]; then
+    return 1
+  fi
+
+  local detected_key
+  detected_key=$(grep -oE '[A-Z][A-Z0-9]{1,9}-[0-9]+' "$traceability_file" | head -1 | cut -d- -f1 || true)
+  if [[ -z "$detected_key" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$detected_key"
+}
+
 enable_repo_managed_hooks() {
   local repo_root=$1
   local desired_hooks_path=".githooks"

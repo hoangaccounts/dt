@@ -123,31 +123,63 @@ cmd_setup() {
   
   print_info "Repository: $repo_root"
   echo ""
+
+  local detected_project_key=""
+  detected_project_key=$(detect_existing_project_key "$repo_root" || true)
   
   # Get or prompt for project key
   if [[ -z "$project_key" ]]; then
     if [[ "$non_interactive" == "true" ]]; then
-      validate_required_in_non_interactive "" "project-key"
-      exit 1
-    fi
-    
-    # Interactive prompt
-    echo "Enter project key for traceability (e.g., PROJ, MYAPP, API2)"
-    echo "This will be used in PR titles and commit messages."
-    echo ""
-    
-    while true; do
-      project_key=$(prompt_for_text "Project key")
-      
-      if validate_project_key "$project_key"; then
-        break
+      if [[ -n "$detected_project_key" ]]; then
+        project_key="$detected_project_key"
+        print_info "Using existing project key: $project_key"
+      else
+        validate_required_in_non_interactive "" "project-key"
+        exit 1
       fi
+    elif [[ -n "$detected_project_key" ]]; then
+      print_info "Detected existing project key: $detected_project_key"
+      if prompt_yes_no "Use existing project key?" "y"; then
+        project_key="$detected_project_key"
+      else
+        echo ""
+        echo "Enter new project key to overwrite existing configuration."
+        echo ""
+
+        while true; do
+          project_key=$(prompt_for_text "Project key")
+
+          if validate_project_key "$project_key"; then
+            break
+          fi
+          echo ""
+        done
+      fi
+    fi
+
+    if [[ -z "$project_key" ]]; then
+      # Interactive prompt
+      echo "Enter project key for traceability (e.g., PROJ, MYAPP, API2)"
+      echo "This will be used in PR titles and commit messages."
       echo ""
-    done
+
+      while true; do
+        project_key=$(prompt_for_text "Project key")
+
+        if validate_project_key "$project_key"; then
+          break
+        fi
+        echo ""
+      done
+    fi
   else
     # Validate provided key
     if ! validate_project_key "$project_key"; then
       exit 1
+    fi
+
+    if [[ -n "$detected_project_key" ]] && [[ "$project_key" != "$detected_project_key" ]]; then
+      print_warning "Overwriting existing project key: $detected_project_key -> $project_key"
     fi
   fi
   
@@ -327,12 +359,8 @@ cmd_status() {
   
   # Try to detect project key from existing files
   local detected_key=""
-  local traceability_file="${repo_root}/.github/workflows/traceability.yml"
-  if [[ -f "$traceability_file" ]]; then
-    # Extract project key from traceability workflow
-    detected_key=$(grep -oE '[A-Z][A-Z0-9]{1,9}-[0-9]+' "$traceability_file" | head -1 | cut -d- -f1 || echo "")
-  fi
-  
+  detected_key=$(detect_existing_project_key "$repo_root" || true)
+
   if [[ -n "$detected_key" ]]; then
     echo ""
     echo "Project Key: $detected_key"
