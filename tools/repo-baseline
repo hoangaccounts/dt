@@ -200,17 +200,29 @@ cmd_setup() {
   local files_list
   files_list=$(get_baseline_files)
 
-	  # If the repo did not have ci/test.sh before we started, and the user later selects
-	  # a CI template, we should overwrite the default failing ci/test.sh without prompting.
-	  #
-	  # Rationale:
-	  # - The default ci/test.sh is installed as part of the baseline.
-	  # - Selecting a template is an explicit opt-in to replace that default.
-	  # - Prompting here is surprising and breaks deterministic piped-input tests.
-	  local ci_test_existed_before="false"
-	  if [[ -e "${repo_root}/ci/test.sh" ]]; then
-	    ci_test_existed_before="true"
-	  fi
+  # If the repo did not have ci/test.sh before we started, and the user later selects
+  # a CI template, we should overwrite the default failing ci/test.sh without prompting.
+  #
+  # Rationale:
+  # - The default ci/test.sh is installed as part of the baseline.
+  # - Selecting a template is an explicit opt-in to replace that default.
+  # - Prompting here is surprising and breaks deterministic piped-input tests.
+  local ci_test_existed_before="false"
+  local ci_test_content_before=""
+  if [[ -e "${repo_root}/ci/test.sh" ]]; then
+    ci_test_existed_before="true"
+    ci_test_content_before=$(cat "${repo_root}/ci/test.sh")
+  fi
+
+  local ci_default_content=""
+  local ci_test_differs_from_default_before="false"
+  if [[ -f "${TEMPLATE_DIR}/ci/test.sh" ]]; then
+    ci_default_content=$(cat "${TEMPLATE_DIR}/ci/test.sh")
+    ci_default_content=$(replace_placeholders "$ci_default_content" "PROJECT_KEY" "$project_key")
+    if [[ "$ci_test_existed_before" == "true" ]] && [[ "$ci_test_content_before" != "$ci_default_content" ]]; then
+      ci_test_differs_from_default_before="true"
+    fi
+  fi
 
 # Show dry-run plan
   if [[ "$dry_run" == "true" ]]; then
@@ -260,6 +272,19 @@ cmd_setup() {
   # - conflict prompts during baseline install must read from stdin cleanly
   # - tests may pipe input expecting conflict resolution first
   if [[ "$dry_run" == "false" ]] && [[ "$non_interactive" == "false" ]]; then
+    local skip_ci_template_selection="false"
+    if [[ "$ci_test_differs_from_default_before" == "true" ]] && [[ -f "${repo_root}/ci/test.sh" ]]; then
+      local ci_test_content_after
+      ci_test_content_after=$(cat "${repo_root}/ci/test.sh")
+      if [[ "$ci_test_content_after" == "$ci_test_content_before" ]]; then
+        skip_ci_template_selection="true"
+      fi
+    fi
+
+    if [[ "$skip_ci_template_selection" == "true" ]]; then
+      print_info "Keeping existing ci/test.sh; skipping CI template selection."
+      echo ""
+    else
     local choice
     choice=$(prompt_ci_template_selection "$repo_root")
     local selected_template
@@ -270,14 +295,14 @@ cmd_setup() {
       local ci_files_list
       ci_files_list="ci/${selected_template}:ci/test.sh"$'\n'
 
-	      # If ci/test.sh did not exist before this setup run, we installed the default failing
-	      # script just moments ago. Selecting a template is an explicit opt-in to replace it,
-	      # so we overwrite without prompting (still creating a timestamped backup).
-	      local ci_template_install_mode="$install_mode"
-	      if [[ "$ci_test_existed_before" == "false" ]]; then
-	        ci_template_install_mode="force"
-	      fi
-	      install_all_files "$repo_root" "$TEMPLATE_DIR" "$ci_files_list" "PROJECT_KEY $project_key" "$ci_template_install_mode"
+      # If ci/test.sh did not exist before this setup run, we installed the default failing
+      # script just moments ago. Selecting a template is an explicit opt-in to replace it,
+      # so we overwrite without prompting (still creating a timestamped backup).
+      local ci_template_install_mode="$install_mode"
+      if [[ "$ci_test_existed_before" == "false" ]]; then
+        ci_template_install_mode="force"
+      fi
+      install_all_files "$repo_root" "$TEMPLATE_DIR" "$ci_files_list" "PROJECT_KEY $project_key" "$ci_template_install_mode"
       local ci_install_rc=$?
       if [[ $ci_install_rc -ne 0 ]]; then
         if [[ $ci_install_rc -eq 2 ]]; then
@@ -286,6 +311,7 @@ cmd_setup() {
         fi
         return 1
       fi
+    fi
     fi
   fi
 

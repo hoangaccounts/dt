@@ -579,6 +579,36 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: skipping ci/test.sh conflict skips template selection screen" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  # Initial install to create baseline files.
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+  [ "$status" -eq 0 ]
+
+  # Create custom ci/test.sh so rerun has a conflict on this file.
+  cat > "$work/ci/test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "custom"
+EOF
+  chmod +x "$work/ci/test.sh"
+
+  # Rerun: reuse existing key, skip ci/test.sh conflict, then checklist prompts.
+  run bash -c "printf 'y\ns\nn\nn\nn\n' | '$(dt_bin)' repo-baseline setup 2>&1"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Choice [o/s/d/a]"* ]]
+  [[ "$output" == *"Keeping existing ci/test.sh; skipping CI template selection."* ]]
+  [[ "$output" != *"Select CI test template:"* ]]
+  grep -q 'echo "custom"' "$work/ci/test.sh"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: Android template installs gradle command" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
