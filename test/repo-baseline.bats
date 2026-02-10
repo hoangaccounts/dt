@@ -632,6 +632,36 @@ EOF
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: selecting concrete CI template does not reprompt ci/test.sh conflict" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  # Pre-create different ci/test.sh to trigger initial conflict.
+  mkdir -p "$work/ci"
+  cat > "$work/ci/test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "custom"
+EOF
+  chmod +x "$work/ci/test.sh"
+
+  cd "$work"
+  # r: replace on initial conflict, no preview, then choose Android and confirm mismatch.
+  run bash -c "printf 'r\nn\n1\ny\nn\nn\nn\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
+
+  [ "$status" -eq 0 ]
+
+  local prompt_count
+  prompt_count=$(printf '%s\n' "$output" | grep -c "Choice \\[r/k/a\\]" || true)
+  [ "$prompt_count" -eq 1 ]
+
+  [ -f "$work/ci/test.sh" ]
+  grep -q "Running Android tests" "$work/ci/test.sh"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: Android template installs gradle command" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"

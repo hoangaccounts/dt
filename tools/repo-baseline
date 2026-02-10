@@ -295,13 +295,9 @@ cmd_setup() {
       local ci_files_list
       ci_files_list="ci/${selected_template}:ci/test.sh"$'\n'
 
-      # If ci/test.sh did not exist before this setup run, we installed the default failing
-      # script just moments ago. Selecting a template is an explicit opt-in to replace it,
-      # so we overwrite without prompting (still creating a timestamped backup).
-      local ci_template_install_mode="$install_mode"
-      if [[ "$ci_test_existed_before" == "false" ]]; then
-        ci_template_install_mode="force"
-      fi
+      # Selecting a concrete CI template is an explicit opt-in to replace ci/test.sh.
+      # Apply it without a second conflict prompt (still creates a timestamped backup).
+      local ci_template_install_mode="force"
       install_all_files "$repo_root" "$TEMPLATE_DIR" "$ci_files_list" "PROJECT_KEY $project_key" "$ci_template_install_mode"
       local ci_install_rc=$?
       if [[ $ci_install_rc -ne 0 ]]; then
