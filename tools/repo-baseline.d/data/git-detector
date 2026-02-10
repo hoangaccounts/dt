@@ -70,3 +70,39 @@ get_github_repo_path() {
   
   extract_github_repo_from_url "$remote_url"
 }
+
+get_local_hooks_path() {
+  local repo_root=$1
+  git -C "$repo_root" config --local --get core.hooksPath 2>/dev/null || true
+}
+
+enable_repo_managed_hooks() {
+  local repo_root=$1
+  local desired_hooks_path=".githooks"
+
+  local current_hooks_path
+  current_hooks_path=$(get_local_hooks_path "$repo_root")
+
+  if [[ -z "$current_hooks_path" ]]; then
+    if git -C "$repo_root" config --local core.hooksPath "$desired_hooks_path" >/dev/null 2>&1; then
+      print_info "Enabled local commit checks (core.hooksPath=$desired_hooks_path)"
+      return 0
+    fi
+
+    print_warning "Could not enable local commit checks automatically."
+    echo "  Configure manually:" >&2
+    echo "    git -C \"$repo_root\" config --local core.hooksPath .githooks" >&2
+    return 0
+  fi
+
+  if [[ "$current_hooks_path" == "$desired_hooks_path" ]]; then
+    print_info "Local commit checks already enabled (core.hooksPath=$desired_hooks_path)"
+    return 0
+  fi
+
+  print_warning "Existing core.hooksPath detected: $current_hooks_path"
+  echo "  Leaving existing hooks path unchanged." >&2
+  echo "  To use baseline local checks, run:" >&2
+  echo "    git -C \"$repo_root\" config --local core.hooksPath .githooks" >&2
+  return 0
+}

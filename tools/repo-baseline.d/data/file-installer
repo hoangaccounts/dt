@@ -97,7 +97,7 @@ install_file() {
   else
     echo "$content" > "$full_path"
 
-    if [[ "$target_path" == "ci/test.sh" ]]; then
+    if [[ "$target_path" == "ci/test.sh" ]] || [[ "$target_path" == ".githooks/commit-msg" ]]; then
       chmod +x "$full_path"
     fi
 

@@ -22,6 +22,12 @@ Every commit subject must start with the issue reference in brackets:
 [{{PROJECT_KEY}}-123] Add tests for authentication
 ```
 
+Local enforcement:
+```bash
+git config --local core.hooksPath .githooks
+```
+The baseline installs `.githooks/commit-msg` with this same rule.
+
 ### 3. Issue Links
 Every PR must link to a GitHub issue:
 ```

@@ -195,6 +195,7 @@ cmd_setup() {
     echo "  {{PROJECT_KEY}} → $project_key"
     echo ""
     print_info "Installation mode: $install_mode"
+    echo "  Git config: core.hooksPath → .githooks (if unset)"
     
     if [[ "$non_interactive" == "false" ]]; then
       echo ""
@@ -255,6 +256,9 @@ cmd_setup() {
       fi
     fi
   fi
+
+  enable_repo_managed_hooks "$repo_root"
+  echo ""
 
 print_success "Baseline installed: $repo_root"
   

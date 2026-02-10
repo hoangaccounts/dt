@@ -194,6 +194,7 @@ add_github_remote() {
   [[ "$output" == *"traceability.yml"* ]]
   [[ "$output" == *"ci.yml"* ]]
   [[ "$output" == *"test.sh"* ]]
+  [[ "$output" == *".githooks/commit-msg"* ]]
   [[ "$output" == *"PULL_REQUEST_TEMPLATE"* ]]
   [[ "$output" == *"project-planning"* ]]
   
@@ -222,8 +223,14 @@ add_github_remote() {
   [ -f "$work/.github/workflows/traceability.yml" ]
   [ -f "$work/.github/workflows/ci.yml" ]
   [ -f "$work/ci/test.sh" ]
+  [ -f "$work/.githooks/commit-msg" ]
+  [ -x "$work/.githooks/commit-msg" ]
   [ -f "$work/.github/PULL_REQUEST_TEMPLATE.md" ]
   [ -f "$work/docs/project-planning-traceability.md" ]
+
+  run git -C "$work" config --local --get core.hooksPath
+  [ "$status" -eq 0 ]
+  [ "$output" = ".githooks" ]
   
   rm -rf "$work"
 }
@@ -323,6 +330,26 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: preserves existing core.hooksPath" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+  git -C "$work" config --local core.hooksPath ".git/hooks-custom"
+
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Existing core.hooksPath"* ]]
+
+  run git -C "$work" config --local --get core.hooksPath
+  [ "$status" -eq 0 ]
+  [ "$output" = ".git/hooks-custom" ]
+
+  rm -rf "$work"
+}
+
 # =============================================================================
 # PLACEHOLDER REPLACEMENT (C)
 # =============================================================================
@@ -358,6 +385,23 @@ add_github_remote() {
   [ "$status" -eq 0 ]
   [ -f "$work/.github/workflows/traceability.yml" ]
   grep -Fq "^\[TEST-[0-9]+\][[:space:]]+.+$" "$work/.github/workflows/traceability.yml"
+
+  rm -rf "$work"
+}
+
+@test "repo-baseline setup: installs local commit-msg hook with project key" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+
+  [ "$status" -eq 0 ]
+  [ -f "$work/.githooks/commit-msg" ]
+  [ -x "$work/.githooks/commit-msg" ]
+  grep -Fq "^\[TEST-[0-9]+\][[:space:]]+.+$" "$work/.githooks/commit-msg"
 
   rm -rf "$work"
 }
@@ -556,7 +600,7 @@ add_github_remote() {
   run "$(dt_bin)" repo-baseline status
   
   [ "$status" -eq 0 ]
-  [[ "$output" == *"0/5"* ]] || [[ "$output" == *"not installed"* ]]
+  [[ "$output" == *"0/7"* ]] || [[ "$output" == *"not installed"* ]]
   
   rm -rf "$work"
 }
@@ -575,7 +619,7 @@ add_github_remote() {
   # Check status
   run "$(dt_bin)" repo-baseline status
   [ "$status" -eq 0 ]
-  [[ "$output" == *"5/5"* ]] || [[ "$output" == *"✅"* ]]
+  [[ "$output" == *"7/7"* ]] || [[ "$output" == *"✅"* ]]
   
   rm -rf "$work"
 }
