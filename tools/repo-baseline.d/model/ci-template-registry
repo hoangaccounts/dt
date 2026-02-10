@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# model/ci-template-registry - Define available CI templates
+#
+# Responsibility: Map user selections to CI test script templates
+# Dependencies: None (pure business logic)
+
+get_ci_template_choices() {
+  cat <<EOF
+1:Android:test-android.sh
+2:iOS:test-ios.sh
+3:Node.js:test-node.sh
+4:Python:test-python.sh
+5:Go:test-go.sh
+6:Rust:test-rust.sh
+7:Skip (use failing default):test.sh
+EOF
+}
+
+print_ci_template_menu() {
+  echo "Select CI test template:"
+  get_ci_template_choices | while IFS=: read -r num label template; do
+    echo "  $num. $label"
+  done
+  echo ""
+}
+
+get_ci_template_by_choice() {
+  local choice=$1
+  
+  local template
+  template=$(get_ci_template_choices | grep "^${choice}:" | cut -d: -f3)
+  
+  if [[ -z "$template" ]]; then
+    # Invalid choice - return default
+    echo "test.sh"
+  else
+    echo "$template"
+  fi
+}
+
+validate_ci_template_choice() {
+  local choice=$1
+  
+  # Valid choices are 1-7
+  if [[ "$choice" =~ ^[1-7]$ ]]; then
+    return 0
+  fi
+  
+  return 1
+}

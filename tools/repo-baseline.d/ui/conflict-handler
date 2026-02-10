@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# ui/conflict-handler - Handle file conflicts interactively
+#
+# Responsibility: Prompt user for conflict resolution
+# Dependencies: ui/output, ui/input
+
+show_diff() {
+  local filepath=$1
+  local new_content=$2
+  
+  # Create temp file with new content
+  local temp_file
+  temp_file=$(mktemp)
+  echo "$new_content" > "$temp_file"
+  
+  # UI-only output: send to stderr so callers that capture stdout never get polluted.
+  echo "" >&2
+  echo "Differences:" >&2
+  echo "────────────────────────────────────────" >&2
+  
+  # Use diff if available, otherwise just show we can't
+  if command -v diff &> /dev/null; then
+    diff -u "$filepath" "$temp_file" >&2 || true
+  else
+    echo "  (diff command not available)" >&2
+    echo "" >&2
+    echo "Existing file has different content." >&2
+  fi
+ 
+  echo "────────────────────────────────────────" >&2
+  echo "" >&2
+  
+  rm -f "$temp_file"
+}
+
+prompt_conflict_resolution() {
+  local target_path=$1
+  local full_path=$2
+  local new_content=$3
+  
+  # Contract: all UI prints go to stderr, and ONLY the final action token
+  # is printed to stdout. This keeps command-substitution safe:
+  #   action=$(prompt_conflict_resolution ...)
+  echo "" >&2
+  print_warning "File exists with different content: $target_path" >&2
+  echo "" >&2
+  echo "Options:" >&2
+  echo "  [r] Replace with baseline file (backup created)" >&2
+  echo "  [k] Keep existing file" >&2
+  echo "  [a] Abort setup" >&2
+  echo "" >&2
+  
+  while true; do
+    local choice
+    if ! choice=$(prompt_choice "Choice [r/k/a]" "r k a R K A"); then
+      echo "Invalid choice. Please enter r, k, or a." >&2
+      continue
+    fi
+
+    case "$choice" in
+      r|R)
+        if prompt_yes_no "Preview changes first?" "n"; then
+          show_diff "$full_path" "$new_content"
+          if prompt_yes_no "Replace with baseline file?" "y"; then
+            echo "overwrite"
+            return 0
+          fi
+          echo "keep"
+          return 0
+        fi
+        echo "overwrite"
+        return 0
+        ;;
+      k|K)
+        echo "keep"
+        return 0
+        ;;
+      a|A)
+        echo "abort"
+        return 0
+        ;;
+    esac
+  done
+}

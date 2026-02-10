@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# data/file-installer - Install files with conflict handling
+#
+# Responsibility: Write files to filesystem with backups
+# Dependencies: ui/output, ui/conflict-handler
+
+create_timestamped_backup() {
+  local filepath=$1
+  local timestamp=${DT_TIMESTAMP:-$(date '+%Y%m%d-%H%M%S')}
+
+  local backup_path="${filepath}.backup-${timestamp}"
+  cp "$filepath" "$backup_path"
+
+  echo "$backup_path"
+}
+
+file_exists_and_differs() {
+  local target_path=$1
+  local new_content=$2
+
+  if [[ ! -f "$target_path" ]]; then
+    return 1
+  fi
+
+  local existing_content
+  existing_content=$(cat "$target_path")
+
+  if [[ "$existing_content" == "$new_content" ]]; then
+    return 1
+  fi
+
+  return 0
+}
+
+install_file() {
+  local repo_root=$1
+  local target_path=$2
+  local content=$3
+  local mode=$4  # interactive, non-interactive, force
+
+  if [[ -z "$target_path" ]]; then
+    print_error "Internal error: empty target path"
+    return 1
+  fi
+
+  local full_path="${repo_root}/${target_path}"
+  local dir_path
+  dir_path=$(dirname "$full_path")
+
+  if [[ ! -d "$dir_path" ]]; then
+    mkdir -p "$dir_path"
+  fi
+
+  if file_exists_and_differs "$full_path" "$content"; then
+    case "$mode" in
+      force)
+        local backup
+        backup=$(create_timestamped_backup "$full_path")
+        echo "$content" > "$full_path"
+        print_info "  Overwritten (backup: $(basename "$backup"))"
+        return 0
+        ;;
+      non-interactive)
+        print_error "  File exists with different content: $target_path"
+        print_error "  Use --force to overwrite"
+        return 1
+        ;;
+      interactive)
+        local action
+        action=$(prompt_conflict_resolution "$target_path" "$full_path" "$content")
+
+        case "$action" in
+          overwrite)
+            local backup
+            backup=$(create_timestamped_backup "$full_path")
+            echo "$content" > "$full_path"
+            print_info "  Overwritten (backup: $(basename "$backup"))"
+            return 0
+            ;;
+          skip|keep)
+            print_info "  Skipped"
+            return 0
+            ;;
+          abort)
+            return 2
+            ;;
+          *)
+            print_error "Internal error: unknown conflict action: $action"
+            return 1
+            ;;
+        esac
+        ;;
+    esac
+  elif [[ -f "$full_path" ]]; then
+    print_info "  Already up to date"
+    return 0
+  else
+    echo "$content" > "$full_path"
+
+    if [[ "$target_path" == "ci/test.sh" ]] || [[ "$target_path" == ".githooks/commit-msg" ]]; then
+      chmod +x "$full_path"
+    fi
+
+    return 0
+  fi
+}
+
+install_all_files() {
+  local repo_root=$1
+  local template_dir=$2
+  local files_list=$3  # Format: template:target per line
+  local replacements=$4  # Format: "PLACEHOLDER_NAME value" pairs
+  local mode=$5
+
+  local success=true
+
+  # Avoid stealing stdin from prompts:
+  # - feed the file list via FD 3
+  # - leave stdin for user interaction (or bats pipes)
+  exec 3<<<"$files_list"
+
+  local line
+  while IFS= read -r line <&3; do
+    [[ -z "$line" ]] && continue
+
+    # Each entry MUST be template_path:target_path
+    if [[ "$line" != *:* ]]; then
+      print_error "Internal error: malformed files entry (missing ':'): $line"
+      success=false
+      break
+    fi
+
+    local template_path=${line%%:*}
+    local target_path=${line#*:}
+
+    if [[ -z "$template_path" ]] || [[ -z "$target_path" ]]; then
+      print_error "Internal error: malformed files entry (empty side): $line"
+      success=false
+      break
+    fi
+
+    local template_file="${template_dir}/${template_path}"
+
+    if [[ ! -f "$template_file" ]]; then
+      print_error "Error: Template not found: $template_path"
+      success=false
+      continue
+    fi
+
+    local content
+    content=$(cat "$template_file")
+
+    # Apply replacements
+    local placeholder_name
+    local placeholder_value
+    while read -r placeholder_name placeholder_value; do
+      content=$(replace_placeholders "$content" "$placeholder_name" "$placeholder_value")
+    done <<< "$replacements"
+
+    # Validate no unknown placeholders remain
+    if ! validate_no_unknown_placeholders "$content"; then
+      print_error "Error: Unknown placeholder in $template_path"
+      success=false
+      continue
+    fi
+
+    # Install file
+    install_file "$repo_root" "$target_path" "$content" "$mode"
+    local rc=$?
+    if [[ $rc -eq 2 ]]; then
+      exec 3<&-
+      return 2
+    fi
+    if [[ $rc -ne 0 ]]; then
+      success=false
+    fi
+  done
+
+  exec 3<&-
+
+  if [[ "$success" == "true" ]]; then
+    return 0
+  fi
+
+  return 1
+}

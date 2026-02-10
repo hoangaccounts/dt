@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  ci:
+    # NOTE: This job name is a locked contract. Branch protection depends on it.
+    name: ci
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run tests
+        run: |
+          chmod +x ci/test.sh
+          ./ci/test.sh

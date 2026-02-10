@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# ui/validators - Input validation
+#
+# Responsibility: Validate user inputs
+# Dependencies: ui/output
+
+validate_project_key() {
+  local key=$1
+  
+  # Pattern: ^[A-Z][A-Z0-9]{1,9}$
+  # - Must start with letter
+  # - 2-10 characters total
+  # - Only uppercase letters and numbers
+  
+  if [[ ! "$key" =~ ^[A-Z][A-Z0-9]{1,9}$ ]]; then
+    print_error "Invalid project key: '$key'"
+    echo "  Project keys must:" >&2
+    echo "    - Be 2-10 characters long" >&2
+    echo "    - Start with an uppercase letter" >&2
+    echo "    - Contain only uppercase letters and numbers" >&2
+    echo "  Examples: PROJ, MYAPP, API2" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+validate_repo_path() {
+  local path=$1
+  
+  if [[ ! -d "$path" ]]; then
+    print_error "Path not found: $path"
+    return 1
+  fi
+  
+  if [[ ! -d "$path/.git" ]]; then
+    print_error "Not a git repository: $path"
+    echo "  Create a repository first:" >&2
+    echo "    git init" >&2
+    echo "    git clone <repo-url>" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+validate_required_in_non_interactive() {
+  local value=$1
+  local name=$2
+  
+  if [[ -z "$value" ]]; then
+    print_error "--${name} is required in non-interactive mode"
+    return 1
+  fi
+  
+  return 0
+}
+
+resolve_physical_path() {
+  local path=$1
+  if [[ -z "$path" ]]; then
+    return 1
+  fi
+
+  (cd "$path" 2>/dev/null && pwd -P) || return 1
+}
+
+validate_auto_detected_repo_root() {
+  local repo_root=$1
+
+  local canonical_repo_root
+  canonical_repo_root=$(resolve_physical_path "$repo_root") || return 0
+
+  if [[ "$canonical_repo_root" == "/" ]]; then
+    print_error "Refusing to auto-detect '/' as repository root"
+    echo "  Use --repo <path> to choose the repository explicitly." >&2
+    return 1
+  fi
+
+  local home_root=""
+  if [[ -n "${HOME:-}" ]]; then
+    home_root=$(resolve_physical_path "$HOME" || true)
+  fi
+
+  if [[ -n "$home_root" ]] && [[ "$canonical_repo_root" == "$home_root" ]]; then
+    print_error "Refusing to auto-detect HOME as repository root: $canonical_repo_root"
+    echo "  Use --repo <path> to choose the repository explicitly." >&2
+    return 1
+  fi
+
+  return 0
+}

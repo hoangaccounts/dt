@@ -1,0 +1,23 @@
+name: Task
+description: Create a tracked task.
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for planned work that should be traceable from PRs.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Short, clear description of the work.
+      placeholder: e.g., Add caching to quote fetch
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What needs to be done? Link context if needed.
+    validations:
+      required: false

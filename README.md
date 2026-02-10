@@ -45,6 +45,7 @@ chmod +x dt bootstrap tools/*
 - **`git-aliases`** — print and optionally install a safe git alias set.
 - **`jump-dir`** — bookmark and jump to frequently used directories.
 - **`prompt`** — install a reversible, git-aware shell prompt.
+- **`repo-baseline`** — install PR workflow baseline (branch protection, CI, traceability). See [repo-baseline docs](docs/repo-baseline.md).
 - **`zip-project`** — create a share-friendly zip of a project (excludes common caches).
 
 ---

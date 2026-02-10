@@ -1,0 +1,427 @@
+#!/usr/bin/env bash
+# VERSION: 0.0.1
+# SUMMARY: Install PR workflow baseline (branch protection, CI, traceability) for GitHub repos
+# TAGS: git, project
+# ALIASES: rb
+# SYNOPSIS: dt repo-baseline
+#   dt repo-baseline setup [--repo <path>] [--project-key <KEY>] [--dry-run] [--force] [--non-interactive]
+#   dt repo-baseline status [--repo <path>]
+# DESCRIPTION: Installs minimal baseline for disciplined PRs: branch protection rules,
+#   CI/test workflows, traceability checks. Prompts for manual GitHub settings (no API writes).
+# SAFETY: confirm
+# OPTIONS:
+#   --repo <path>         Repository path (default: current directory)
+#   --project-key <KEY>   Project key for traceability (e.g., PROJ)
+#   --dry-run             Show what would be installed without writing
+#   --force               Overwrite existing files without prompting
+#   --non-interactive     Skip all prompts (requires --project-key)
+# EXAMPLES:
+#   dt repo-baseline setup
+#   dt repo-baseline setup --repo ~/myproject --project-key MYPROJ
+#   dt repo-baseline setup --dry-run
+#   dt repo-baseline status
+# OUTPUT: GitHub workflow files, CI scripts, PR template, documentation
+# DEPS: git
+# CREDITS: Based on repo-baseline-design.md
+# MISC: Alias 'rb' for quick access. Manual GitHub configuration required (no API writes).
+### END HELP
+set -euo pipefail
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly LIB_DIR="${SCRIPT_DIR}/repo-baseline.d"
+# Allow tests (and advanced users) to override the template source directory.
+# Default behavior remains unchanged.
+readonly TEMPLATE_DIR="${REPO_BASELINE_TEMPLATE_DIR:-${LIB_DIR}/templates}"
+
+# Load modules in dependency order
+# UI layer (no dependencies)
+source "${LIB_DIR}/ui/output"
+source "${LIB_DIR}/ui/input"
+source "${LIB_DIR}/ui/validators"
+source "${LIB_DIR}/ui/conflict-handler"
+source "${LIB_DIR}/ui/guided-checklist"
+source "${LIB_DIR}/ui/ci-template-selector"
+
+# Data layer (depends on ui)
+source "${LIB_DIR}/data/git-detector"
+source "${LIB_DIR}/data/file-installer"
+
+# Model layer (domain logic)
+source "${LIB_DIR}/model/baseline-files"
+source "${LIB_DIR}/model/placeholder-rules"
+source "${LIB_DIR}/model/ci-template-registry"
+
+print_usage() {
+  echo "Run: dt help repo-baseline"
+  return 0
+}
+
+cmd_setup() {
+  local repo_path=""
+  local project_key=""
+  local dry_run=false
+  local force=false
+  local non_interactive=false
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --repo)
+        repo_path=$2
+        shift 2
+        ;;
+      --project-key)
+        project_key=$2
+        shift 2
+        ;;
+      --dry-run)
+        dry_run=true
+        shift
+        ;;
+      --force)
+        force=true
+        shift
+        ;;
+      --non-interactive)
+        non_interactive=true
+        shift
+        ;;
+      *)
+        print_error "Unknown option: $1"
+        print_usage >&2
+        exit 2
+        ;;
+    esac
+  done
+  
+  # Detect repository
+  local repo_root
+  if [[ -n "$repo_path" ]]; then
+    # Use provided path
+    if ! validate_repo_path "$repo_path"; then
+      exit 1
+    fi
+    repo_root="$repo_path"
+  else
+    # Detect from current directory
+    if ! repo_root=$(detect_git_repo_root "."); then
+      print_error "No git repository found."
+      echo "" >&2
+      echo "Create or clone a repository first:" >&2
+      echo "  git init" >&2
+      echo "  git clone <repo-url>" >&2
+      echo "" >&2
+      echo "Then run from inside the repository, or use:" >&2
+      echo "  dt repo-baseline setup --repo <path>" >&2
+      exit 1
+    fi
+
+    if ! validate_auto_detected_repo_root "$repo_root"; then
+      exit 1
+    fi
+  fi
+  
+  print_info "Repository: $repo_root"
+  echo ""
+
+  local detected_project_key=""
+  detected_project_key=$(detect_existing_project_key "$repo_root" || true)
+  
+  # Get or prompt for project key
+  if [[ -z "$project_key" ]]; then
+    if [[ "$non_interactive" == "true" ]]; then
+      if [[ -n "$detected_project_key" ]]; then
+        project_key="$detected_project_key"
+        print_info "Using existing project key: $project_key"
+      else
+        validate_required_in_non_interactive "" "project-key"
+        exit 1
+      fi
+    elif [[ -n "$detected_project_key" ]]; then
+      print_info "Detected existing project key: $detected_project_key"
+      if prompt_yes_no_required "Use existing project key?"; then
+        project_key="$detected_project_key"
+      else
+        echo ""
+        echo "Enter new project key to overwrite existing configuration."
+        echo ""
+
+        while true; do
+          project_key=$(prompt_for_text "Project key")
+
+          if validate_project_key "$project_key"; then
+            break
+          fi
+          echo ""
+        done
+      fi
+    fi
+
+    if [[ -z "$project_key" ]]; then
+      # Interactive prompt
+      echo "Enter project key for traceability (e.g., PROJ, MYAPP, API2)"
+      echo "This will be used in PR titles and commit messages."
+      echo ""
+
+      while true; do
+        project_key=$(prompt_for_text "Project key")
+
+        if validate_project_key "$project_key"; then
+          break
+        fi
+        echo ""
+      done
+    fi
+  else
+    # Validate provided key
+    if ! validate_project_key "$project_key"; then
+      exit 1
+    fi
+
+    if [[ -n "$detected_project_key" ]] && [[ "$project_key" != "$detected_project_key" ]]; then
+      print_warning "Overwriting existing project key: $detected_project_key -> $project_key"
+    fi
+  fi
+  
+  echo ""
+  print_info "Project key: $project_key"
+  
+  # Determine installation mode
+  local install_mode
+  if [[ "$force" == "true" ]]; then
+    install_mode="force"
+  elif [[ "$non_interactive" == "true" ]]; then
+    install_mode="non-interactive"
+  else
+    install_mode="interactive"
+  fi
+  
+  # Build files list (baseline always installs default ci/test.sh)
+  local files_list
+  files_list=$(get_baseline_files)
+
+  # If the repo did not have ci/test.sh before we started, and the user later selects
+  # a CI template, we should overwrite the default failing ci/test.sh without prompting.
+  #
+  # Rationale:
+  # - The default ci/test.sh is installed as part of the baseline.
+  # - Selecting a template is an explicit opt-in to replace that default.
+  # - Prompting here is surprising and breaks deterministic piped-input tests.
+  local ci_test_existed_before="false"
+  local ci_test_content_before=""
+  if [[ -e "${repo_root}/ci/test.sh" ]]; then
+    ci_test_existed_before="true"
+    ci_test_content_before=$(cat "${repo_root}/ci/test.sh")
+  fi
+
+  local ci_default_content=""
+  local ci_test_differs_from_default_before="false"
+  if [[ -f "${TEMPLATE_DIR}/ci/test.sh" ]]; then
+    ci_default_content=$(cat "${TEMPLATE_DIR}/ci/test.sh")
+    ci_default_content=$(replace_placeholders "$ci_default_content" "PROJECT_KEY" "$project_key")
+    if [[ "$ci_test_existed_before" == "true" ]] && [[ "$ci_test_content_before" != "$ci_default_content" ]]; then
+      ci_test_differs_from_default_before="true"
+    fi
+  fi
+
+# Show dry-run plan
+  if [[ "$dry_run" == "true" ]]; then
+    echo ""
+    print_info "Dry run - files that would be installed:"
+    echo ""
+    
+    while IFS=: read -r template_path target_path; do
+      echo "  $target_path"
+    done <<< "$files_list"
+    
+    echo ""
+    print_info "Placeholder replacements:"
+    echo "  {{PROJECT_KEY}} → $project_key"
+    echo ""
+    print_info "Installation mode: $install_mode"
+    echo "  Git config: core.hooksPath → .githooks (if unset)"
+    
+    if [[ "$non_interactive" == "false" ]]; then
+      echo ""
+      print_info "Guided checklist would be shown after installation"
+    fi
+    
+    return 0
+  fi
+  
+  # Install files
+  echo ""
+  print_info "Installing baseline files..."
+  echo ""
+  
+  install_all_files "$repo_root" "$TEMPLATE_DIR" "$files_list" "PROJECT_KEY $project_key" "$install_mode"
+  local install_rc=$?
+  if [[ $install_rc -ne 0 ]]; then
+    if [[ $install_rc -eq 2 ]]; then
+      print_error "Installation aborted by user"
+      exit 1
+    fi
+    print_error "Installation failed"
+    exit 1
+  fi
+  
+  echo ""
+  
+  # Offer CI test template selection AFTER baseline files are installed.
+  # This ordering is important:
+  # - conflict prompts during baseline install must read from stdin cleanly
+  # - tests may pipe input expecting conflict resolution first
+  if [[ "$dry_run" == "false" ]] && [[ "$non_interactive" == "false" ]]; then
+    local skip_ci_template_selection="false"
+    if [[ "$ci_test_differs_from_default_before" == "true" ]] && [[ -f "${repo_root}/ci/test.sh" ]]; then
+      local ci_test_content_after
+      ci_test_content_after=$(cat "${repo_root}/ci/test.sh")
+      if [[ "$ci_test_content_after" == "$ci_test_content_before" ]]; then
+        skip_ci_template_selection="true"
+      fi
+    fi
+
+    if [[ "$skip_ci_template_selection" == "true" ]]; then
+      print_info "Keeping existing ci/test.sh; skipping CI template selection."
+      echo ""
+    else
+    local choice
+    choice=$(prompt_ci_template_selection "$repo_root")
+    local selected_template
+    selected_template=$(get_selected_template_file "$choice")
+
+    if [[ "$selected_template" != "test.sh" ]]; then
+      # Install just the selected template as ci/test.sh (with the same conflict rules).
+      local ci_files_list
+      ci_files_list="ci/${selected_template}:ci/test.sh"$'\n'
+
+      # Selecting a concrete CI template is an explicit opt-in to replace ci/test.sh.
+      # Apply it without a second conflict prompt (still creates a timestamped backup).
+      local ci_template_install_mode="force"
+      install_all_files "$repo_root" "$TEMPLATE_DIR" "$ci_files_list" "PROJECT_KEY $project_key" "$ci_template_install_mode"
+      local ci_install_rc=$?
+      if [[ $ci_install_rc -ne 0 ]]; then
+        if [[ $ci_install_rc -eq 2 ]]; then
+          print_error "Installation aborted by user."
+          return 1
+        fi
+        return 1
+      fi
+    fi
+    fi
+  fi
+
+  enable_repo_managed_hooks "$repo_root"
+  echo ""
+
+print_success "Baseline installed: $repo_root"
+  
+  # Show guided checklist unless non-interactive
+  if [[ "$non_interactive" == "false" ]]; then
+    show_guided_checklist "$repo_root" "$project_key"
+  fi
+}
+
+cmd_status() {
+  local repo_path=""
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --repo)
+        repo_path=$2
+        shift 2
+        ;;
+      *)
+        print_error "Unknown option: $1"
+        print_usage >&2
+        exit 2
+        ;;
+    esac
+  done
+  
+  # Detect repository
+  local repo_root
+  if [[ -n "$repo_path" ]]; then
+    if ! validate_repo_path "$repo_path"; then
+      exit 1
+    fi
+    repo_root="$repo_path"
+  else
+    if ! repo_root=$(detect_git_repo_root "."); then
+      print_error "No git repository found"
+      exit 1
+    fi
+
+    if ! validate_auto_detected_repo_root "$repo_root"; then
+      exit 1
+    fi
+  fi
+  
+  echo "Repository: $repo_root"
+  echo ""
+  
+  # Check which files are installed
+  local installed=0
+  local total
+  total=$(count_baseline_files)
+  
+  echo "Baseline Files:"
+  
+  while IFS= read -r target_path; do
+    local full_path="${repo_root}/${target_path}"
+
+    if [[ -f "$full_path" ]]; then
+      echo "  ✅ $target_path"
+      installed=$((installed + 1))
+    else
+      echo "  ❌ $target_path"
+    fi
+  done < <(get_all_targets || true)
+  
+  # Try to detect project key from existing files
+  local detected_key=""
+  detected_key=$(detect_existing_project_key "$repo_root" || true)
+
+  if [[ -n "$detected_key" ]]; then
+    echo ""
+    echo "Project Key: $detected_key"
+  fi
+  
+  echo ""
+  echo "Manual Configuration:"
+  echo "  ⚠️  Branch protection (requires GitHub access)"
+  echo "  ⚠️  Required labels (requires GitHub access)"
+  echo ""
+  
+  echo "Status: $installed/$total files installed"
+
+  # Status is informational.
+  # "Not installed" is not an error condition for this command.
+  return 0
+}
+
+main() {
+  local subcmd="${1:-}"
+  
+  case "${subcmd}" in
+    ""|help|-h|--help)
+      print_usage
+      ;;
+    setup)
+      shift
+      cmd_setup "$@"
+      ;;
+    status)
+      shift
+      cmd_status "$@"
+      ;;
+    *)
+      print_error "Unknown subcommand: ${subcmd}"
+      print_usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

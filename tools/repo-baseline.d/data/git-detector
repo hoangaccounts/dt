@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# data/git-detector - Detect git repository
+#
+# Responsibility: Interact with git to detect repository root
+# Dependencies: ui/output
+
+detect_git_repo_root() {
+  local path="${1:-.}"
+  
+  # Try to get git root
+  local repo_root
+  if repo_root=$(cd "$path" && git rev-parse --show-toplevel 2>/dev/null); then
+    echo "$repo_root"
+    return 0
+  fi
+  
+  return 1
+}
+
+validate_is_git_repo() {
+  local path=$1
+  
+  if [[ ! -d "$path/.git" ]]; then
+    return 1
+  fi
+  
+  return 0
+}
+
+get_github_remote_url() {
+  local repo_root=$1
+  
+  # Try to get origin remote URL
+  local remote_url
+  if remote_url=$(cd "$repo_root" && git remote get-url origin 2>/dev/null); then
+    echo "$remote_url"
+    return 0
+  fi
+  
+  return 1
+}
+
+extract_github_repo_from_url() {
+  local url=$1
+  
+  # Extract owner/repo from various GitHub URL formats
+  # https://github.com/owner/repo.git
+  # git@github.com:owner/repo.git
+  # https://github.com/owner/repo
+  
+  local repo
+  if [[ "$url" =~ github\.com[:/]([^/]+/[^/]+)(\.git)?$ ]]; then
+    repo="${BASH_REMATCH[1]}"
+    # Remove .git suffix if present
+    repo="${repo%.git}"
+    echo "$repo"
+    return 0
+  fi
+  
+  return 1
+}
+
+get_github_repo_path() {
+  local repo_root=$1
+  
+  local remote_url
+  if ! remote_url=$(get_github_remote_url "$repo_root"); then
+    return 1
+  fi
+  
+  extract_github_repo_from_url "$remote_url"
+}
+
+get_local_hooks_path() {
+  local repo_root=$1
+  git -C "$repo_root" config --local --get core.hooksPath 2>/dev/null || true
+}
+
+detect_existing_project_key() {
+  local repo_root=$1
+  local traceability_file="${repo_root}/.github/workflows/traceability.yml"
+
+  if [[ ! -f "$traceability_file" ]]; then
+    return 1
+  fi
+
+  local detected_key
+  detected_key=$(grep -oE '[A-Z][A-Z0-9]{1,9}-[0-9]+' "$traceability_file" | head -1 | cut -d- -f1 || true)
+  if [[ -z "$detected_key" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$detected_key"
+}
+
+enable_repo_managed_hooks() {
+  local repo_root=$1
+  local desired_hooks_path=".githooks"
+
+  local current_hooks_path
+  current_hooks_path=$(get_local_hooks_path "$repo_root")
+
+  if [[ -z "$current_hooks_path" ]]; then
+    if git -C "$repo_root" config --local core.hooksPath "$desired_hooks_path" >/dev/null 2>&1; then
+      print_info "Enabled local commit checks (core.hooksPath=$desired_hooks_path)"
+      return 0
+    fi
+
+    print_warning "Could not enable local commit checks automatically."
+    echo "  Configure manually:" >&2
+    echo "    git -C \"$repo_root\" config --local core.hooksPath .githooks" >&2
+    return 0
+  fi
+
+  if [[ "$current_hooks_path" == "$desired_hooks_path" ]]; then
+    print_info "Local commit checks already enabled (core.hooksPath=$desired_hooks_path)"
+    return 0
+  fi
+
+  print_warning "Existing core.hooksPath detected: $current_hooks_path"
+  echo "  Leaving existing hooks path unchanged." >&2
+  echo "  To use baseline local checks, run:" >&2
+  echo "    git -C \"$repo_root\" config --local core.hooksPath .githooks" >&2
+  return 0
+}

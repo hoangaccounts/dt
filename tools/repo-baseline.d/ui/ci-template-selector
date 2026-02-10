@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# ui/ci-template-selector - Interactive CI template selection
+#
+# Responsibility: Prompt user to select CI test template
+# Dependencies: ui/output, ui/input, model/ci-template-registry
+#
+# Contract: Callers capture stdout via $(prompt_ci_template_selection).
+# Therefore, ALL UI must go to stderr and ONLY the final choice is printed to stdout.
+
+ci_template_label() {
+  local choice=$1
+  case "$choice" in
+    1) echo "Android" ;;
+    2) echo "iOS" ;;
+    3) echo "Node.js" ;;
+    4) echo "Python" ;;
+    5) echo "Go" ;;
+    6) echo "Rust" ;;
+    7) echo "Skip (use failing default)" ;;
+    *) echo "Unknown" ;;
+  esac
+}
+
+ci_template_marker_hint() {
+  local choice=$1
+  case "$choice" in
+    1) echo "expected marker: gradlew (Android Gradle wrapper) at repo root" ;;
+    2) echo "expected marker: *.xcodeproj or *.xcworkspace" ;;
+    3) echo "expected marker: package.json at repo root" ;;
+    4) echo "expected marker: pyproject.toml, requirements.txt, or setup.py at repo root" ;;
+    5) echo "expected marker: go.mod at repo root" ;;
+    6) echo "expected marker: Cargo.toml at repo root" ;;
+    *) echo "" ;;
+  esac
+}
+
+has_ci_template_markers() {
+  local repo_root=$1
+  local choice=$2
+
+  case "$choice" in
+    1)
+      [[ -f "$repo_root/gradlew" ]]
+      ;;
+    2)
+      find "$repo_root" -maxdepth 3 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -print -quit | grep -q .
+      ;;
+    3)
+      [[ -f "$repo_root/package.json" ]]
+      ;;
+    4)
+      [[ -f "$repo_root/pyproject.toml" ]] || [[ -f "$repo_root/requirements.txt" ]] || [[ -f "$repo_root/setup.py" ]]
+      ;;
+    5)
+      [[ -f "$repo_root/go.mod" ]]
+      ;;
+    6)
+      [[ -f "$repo_root/Cargo.toml" ]]
+      ;;
+    7)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+detect_confident_ci_template_choice() {
+  local repo_root=$1
+  local match_count=0
+  local matched_choice=""
+  local choice
+
+  for choice in 1 2 3 4 5 6; do
+    if has_ci_template_markers "$repo_root" "$choice"; then
+      match_count=$((match_count + 1))
+      matched_choice="$choice"
+    fi
+  done
+
+  if [[ "$match_count" -eq 1 ]]; then
+    printf '%s\n' "$matched_choice"
+    return 0
+  fi
+
+  return 1
+}
+
+prompt_ci_template_selection() {
+  local repo_root="${1:-.}"
+  local default_choice="7"
+  local detected_choice=""
+
+  detected_choice=$(detect_confident_ci_template_choice "$repo_root" || true)
+  if [[ -n "$detected_choice" ]]; then
+    default_choice="$detected_choice"
+  fi
+
+  {
+    echo ""
+    echo "Select CI test template:"
+    echo "  1. Android"
+    echo "  2. iOS"
+    echo "  3. Node.js"
+    echo "  4. Python"
+    echo "  5. Go"
+    echo "  6. Rust"
+    echo "  7. Skip (use failing default, recommended if unsure)"
+    echo ""
+    if [[ -n "$detected_choice" ]]; then
+      echo "Detected markers for: $(ci_template_label "$detected_choice")"
+      echo "Press Enter to use detected default: $detected_choice"
+    else
+      echo "No clear stack detected."
+      echo "Press Enter to use safe default: 7"
+    fi
+    echo ""
+  } >&2
+
+  local choice
+  while true; do
+    printf 'Choice [%s]: ' "$default_choice" >&2
+    IFS= read -r choice
+    if [[ -z "$choice" ]]; then
+      choice="$default_choice"
+    fi
+
+    if ! validate_ci_template_choice "$choice"; then
+      print_error "Invalid choice. Please enter 1-7."
+      continue
+    fi
+
+    if [[ "$choice" != "7" ]] && ! has_ci_template_markers "$repo_root" "$choice"; then
+      print_warning "Selected template may not match repository markers."
+      echo "  $(ci_template_marker_hint "$choice")" >&2
+      if ! prompt_yes_no "Install $(ci_template_label "$choice") template anyway?" "n"; then
+        echo "Select another template." >&2
+        echo "" >&2
+        continue
+      fi
+    fi
+
+    break
+  done
+
+  printf '%s\n' "$choice"
+}
+
+get_selected_template_file() {
+  local choice=$1
+  get_ci_template_by_choice "$choice"
+}

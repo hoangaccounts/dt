@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# model/placeholder-rules - Validate and apply placeholder replacements
+#
+# Responsibility: Define placeholder replacement rules and validation
+# Dependencies: None (pure business logic)
+
+# Known placeholders
+KNOWN_PLACEHOLDERS=(
+  "PROJECT_KEY"
+)
+
+validate_placeholder_name() {
+  local placeholder=$1
+  
+  for known in "${KNOWN_PLACEHOLDERS[@]}"; do
+    if [[ "$placeholder" == "$known" ]]; then
+      return 0
+    fi
+  done
+  
+  return 1
+}
+
+# Extract all {{...}} placeholders from content
+extract_placeholders() {
+  local content=$1
+  echo "$content" | grep -oE '\{\{[A-Z_]+\}\}' | sort -u | sed 's/[{}]//g'
+}
+
+# Validate that all placeholders in content are known
+validate_content_placeholders() {
+  local content=$1
+  
+  local placeholders
+  placeholders=$(extract_placeholders "$content")
+  
+  if [[ -z "$placeholders" ]]; then
+    return 0
+  fi
+  
+  local unknown=""
+  while IFS= read -r placeholder; do
+    if ! validate_placeholder_name "$placeholder"; then
+      unknown="${unknown}${placeholder} "
+    fi
+  done <<< "$placeholders"
+  
+  if [[ -n "$unknown" ]]; then
+    echo "$unknown"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Validate that no unknown placeholders remain in rendered content.
+#
+# The installer expects a boolean-style validator that returns non-zero when
+# unknown placeholders are present.
+validate_no_unknown_placeholders() {
+  local content=$1
+
+  # Suppress the list of unknown placeholders; callers only need pass/fail.
+  validate_content_placeholders "$content" >/dev/null
+}
+
+# Replace placeholders in content
+# Usage: replace_placeholders "$content" "PROJECT_KEY" "MYAPP"
+replace_placeholders() {
+  local content=$1
+  shift
+  
+  local result="$content"
+  
+  # Process pairs of placeholder_name value
+  while [[ $# -gt 0 ]]; do
+    local placeholder_name=$1
+    local value=$2
+    shift 2
+    
+    # Replace {{PLACEHOLDER_NAME}} with value
+    result=$(echo "$result" | sed "s/{{${placeholder_name}}}/${value}/g")
+  done
+  
+  echo "$result"
+}
