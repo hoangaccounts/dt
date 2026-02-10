@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  checks: write
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Force consistent check name
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+
+      - name: Shellcheck
+        run: |
+          shellcheck bootstrap dt tools/* || true
+
+      - name: Run bats tests
+        run: |
+          chmod +x bootstrap dt tools/* || true
+          bats test
+
+      - name: Report Status
+        if: always()
+        uses: LouisBrunner/checks-action@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: "CI / test"
+          conclusion: ${{ job.status }}

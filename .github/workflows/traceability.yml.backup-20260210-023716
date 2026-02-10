@@ -1,0 +1,92 @@
+name: Traceability
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, labeled, unlabeled]
+
+jobs:
+  traceability-checks:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check PR title format
+        id: pr-title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          # Expected format: KK-123 Description
+          if echo "$PR_TITLE" | grep -qE '^KK-[0-9]+ '; then
+            echo "✓ PR title format correct: $PR_TITLE"
+            exit 0
+          else
+            echo "✗ PR title must start with: KK-<number> "
+            echo "  Example: KK-123 Add user authentication"
+            echo "  Current: $PR_TITLE"
+            exit 1
+          fi
+
+      - name: Check commit subjects
+        id: commit-subjects
+        run: |
+          # Check out the PR branch to access commits
+          git fetch origin ${{ github.event.pull_request.head.ref }}
+          git checkout ${{ github.event.pull_request.head.ref }}
+          
+          # Get commits in this PR
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
+          echo "Checking commits from $BASE_SHA to $HEAD_SHA"
+          
+          FAILED=0
+          git log --format=%s "$BASE_SHA..$HEAD_SHA" | while read -r subject; do
+            if echo "$subject" | grep -qE '\[KK-[0-9]+\]'; then
+              echo "✓ $subject"
+            else
+              echo "✗ Missing issue reference: $subject"
+              echo "  Expected format: [KK-123] Commit message"
+              FAILED=1
+            fi
+          done
+          
+          if [ $FAILED -eq 1 ]; then
+            exit 1
+          fi
+
+      - name: Check issue link
+        id: issue-link
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          
+          if echo "$PR_BODY" | grep -qiE '(closes|fixes) #[0-9]+'; then
+            echo "✓ PR links to issue"
+            exit 0
+          else
+            echo "✗ PR body must link to an issue"
+            echo "  Add one of:"
+            echo "    Closes #123"
+            echo "    Fixes #456"
+            exit 1
+          fi
+
+      - name: Check type label
+        id: type-label
+        run: |
+          LABELS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "${{ github.event.pull_request.labels_url }}" | jq -r '.[].name')
+          
+          TYPE_LABELS=$(echo "$LABELS" | grep -E '^type:' || true)
+          TYPE_COUNT=$(echo "$TYPE_LABELS" | grep -c . || echo 0)
+          
+          if [ "$TYPE_COUNT" -eq 1 ]; then
+            echo "✓ PR has exactly one type label: $TYPE_LABELS"
+            exit 0
+          elif [ "$TYPE_COUNT" -eq 0 ]; then
+            echo "✗ PR must have exactly one type label"
+            echo "  Required labels: type:feat, type:fix, type:docs, or type:ci"
+            exit 1
+          else
+            echo "✗ PR has multiple type labels:"
+            echo "$TYPE_LABELS"
+            echo "  Only one type label allowed"
+            exit 1
+          fi
