@@ -74,10 +74,12 @@ jobs:
 
     steps:
       - name: Check issue link
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          PR_BODY="${{ github.event.pull_request.body }}"
+          set -euo pipefail
           
-          if echo "$PR_BODY" | grep -qiE '(closes|fixes) #[0-9]+'; then
+          if printf '%s\n' "${PR_BODY:-}" | grep -qiE '(closes|fixes) #[0-9]+'; then
             echo "✓ PR links to issue"
             exit 0
           else

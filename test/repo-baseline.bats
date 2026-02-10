@@ -406,6 +406,23 @@ add_github_remote() {
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: issue-link workflow treats PR body as data" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  cd "$work"
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
+
+  [ "$status" -eq 0 ]
+  [ -f "$work/.github/workflows/traceability.yml" ]
+  grep -Fq "PR_BODY: \${{ github.event.pull_request.body }}" "$work/.github/workflows/traceability.yml"
+  grep -Fq "printf '%s\\n' \"\${PR_BODY:-}\" | grep -qiE '(closes|fixes) #[0-9]+'" "$work/.github/workflows/traceability.yml"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: fails on unknown placeholder in template" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
