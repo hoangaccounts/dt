@@ -1,3 +1,9 @@
+---
+layout: default
+title: Tool Authoring Guide
+permalink: /docs/tool-authoring-guide/
+---
+
 # Tool Authoring Guide (dt-devtools)
 
 This document is the **contract** for adding new tools to this repo. If you follow it, `dt` should discover the tool, `dt help <tool>` should render correctly, and `dt test` should prevent regressions.
