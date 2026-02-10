@@ -241,17 +241,22 @@ add_github_remote() {
   
   create_test_repo "$work"
   
-  # Pre-create identical file
+  # Pre-create an identical ci workflow file so install treats it as no-op.
+  local dt_path
+  dt_path="$(dt_bin)"
+  local dt_root
+  dt_root="$(cd "$(dirname "$dt_path")" && pwd)"
+
   mkdir -p "$work/.github/workflows"
-  # Would need actual baseline content here
-  echo "identical content" > "$work/.github/workflows/ci.yml"
+  sed "s/{{PROJECT_KEY}}/TEST/g" \
+    "$dt_root/tools/repo-baseline.d/templates/workflows/ci.yml" \
+    > "$work/.github/workflows/ci.yml"
   
   cd "$work"
-  run "$(dt_bin)" repo-baseline setup --dry-run --non-interactive --project-key TEST
+  run "$(dt_bin)" repo-baseline setup --non-interactive --project-key TEST
   
   [ "$status" -eq 0 ]
-  # Should indicate file already correct
-  [[ "$output" == *"already installed"* ]] || [[ "$output" == *"up to date"* ]]
+  [[ "$output" == *"Already up to date"* ]]
   
   rm -rf "$work"
 }
@@ -785,7 +790,7 @@ EOF
   [[ "$output" == *"Step 1/3"* ]]
   [[ "$output" == *"Step 2/3"* ]]
   [[ "$output" == *"Step 3/3"* ]]
-  [[ "$output" == *"Complete? [y/n]"* ]]
+  [[ "$output" == *"Complete [y/n]"* ]]
   
   rm -rf "$work"
 }
@@ -976,7 +981,7 @@ EOF
   run "$(dt_bin)" repo-baseline setup --non-interactive --project-key "INVALID KEY"
   
   [ "$status" -ne 0 ]
-  [[ "$output" == *"invalid"* ]] || [[ "$output" == *"format"* ]]
+  [[ "$output" == *"Invalid project key"* ]]
   
   rm -rf "$work"
 }
