@@ -77,7 +77,7 @@ install_file() {
             print_info "  Overwritten (backup: $(basename "$backup"))"
             return 0
             ;;
-          skip)
+          skip|keep)
             print_info "  Skipped"
             return 0
             ;;

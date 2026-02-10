@@ -609,6 +609,29 @@ EOF
   rm -rf "$work"
 }
 
+@test "repo-baseline setup: replace conflict can preview changes first" {
+  local work
+  work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"
+
+  create_test_repo "$work"
+
+  # Pre-create different file to trigger conflict.
+  mkdir -p "$work/.github/workflows"
+  echo "different content" > "$work/.github/workflows/ci.yml"
+
+  cd "$work"
+  # r: replace, y: preview first, y: confirm replace, then skip template/checklist.
+  run bash -c "printf 'r\ny\ny\n7\nn\nn\n' | '$(dt_bin)' repo-baseline setup --project-key TEST 2>&1"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Preview changes first? [y/n]:"* ]]
+  [[ "$output" == *"Differences:"* ]]
+  [[ "$output" == *"Replace with baseline file? [y/n]:"* ]]
+  ! grep -q "different content" "$work/.github/workflows/ci.yml"
+
+  rm -rf "$work"
+}
+
 @test "repo-baseline setup: Android template installs gradle command" {
   local work
   work="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-rbl")"

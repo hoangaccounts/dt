@@ -59,11 +59,20 @@ prompt_conflict_resolution() {
 
     case "$choice" in
       r|R)
+        if prompt_yes_no "Preview changes first?" "n"; then
+          show_diff "$full_path" "$new_content"
+          if prompt_yes_no "Replace with baseline file?" "y"; then
+            echo "overwrite"
+            return 0
+          fi
+          echo "keep"
+          return 0
+        fi
         echo "overwrite"
         return 0
         ;;
       k|K)
-        echo "skip"
+        echo "keep"
         return 0
         ;;
       a|A)
