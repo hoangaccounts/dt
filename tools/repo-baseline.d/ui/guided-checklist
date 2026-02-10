@@ -108,6 +108,12 @@ show_branch_protection_step_with_url() {
   echo "  7. (Optional) Check ☑ 'Require approvals' and set to 1"
   echo "  8. Click 'Create' or 'Save changes'"
   echo ""
+  echo "Important:"
+  echo "  If GitHub shows a warning that rulesets are not enforced for this repository"
+  echo "  (for example on some private-repo plans), direct pushes to main may bypass"
+  echo "  CI and traceability checks."
+  echo "  In that case, use strict PR-only workflow discipline and local hooks."
+  echo ""
   
   if prompt_yes_no "Complete" "n"; then
     print_success "Branch protection configured"
@@ -138,6 +144,12 @@ show_branch_protection_step_generic() {
   echo "     • traceability/issue-link"
   echo "  8. (Optional) Check ☑ 'Require approvals' and set to 1"
   echo "  9. Click 'Create' or 'Save changes'"
+  echo ""
+  echo "Important:"
+  echo "  If GitHub shows a warning that rulesets are not enforced for this repository"
+  echo "  (for example on some private-repo plans), direct pushes to main may bypass"
+  echo "  CI and traceability checks."
+  echo "  In that case, use strict PR-only workflow discipline and local hooks."
   echo ""
   
   if prompt_yes_no "Complete" "n"; then

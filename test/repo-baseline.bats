@@ -644,6 +644,7 @@ EOF
   [[ "$output" == *"traceability/type-label"* ]]
   [[ "$output" == *"traceability/issue-link"* ]]
   [[ "$output" == *"ci"* ]]
+  [[ "$output" == *"direct pushes to main may bypass"* ]]
   
   rm -rf "$work"
 }
