@@ -1,6 +1,6 @@
 # dt
 
-A tiny, self-documenting toolbox of command-line utilities for day-to-day software development.
+I built a little CLI toolbox I use every day — it helps me stay oriented, cut friction, and keep repos consistent. It also adds some guardrails for AI-assisted coding.
 
 - **Discover tools:** `dt list`, `dt tags`
 - **Read help:** `dt help <tool>` or `dt <tool>`
@@ -12,7 +12,7 @@ A tiny, self-documenting toolbox of command-line utilities for day-to-day softwa
 
 ## Install / Uninstall
 
-See [`INSTALL.md`](docs/INSTALL.md).
+See [`INSTALL`](docs/install/).
 
 ## Design goals
 
@@ -46,7 +46,7 @@ chmod +x dt bootstrap tools/*
 - **`git-aliases`** — print and optionally install a safe git alias set.
 - **`jump-dir`** — bookmark and jump to frequently used directories.
 - **`prompt`** — install a reversible, git-aware shell prompt.
-- **`repo-baseline`** — install PR workflow baseline (branch protection, CI, traceability). See [repo-baseline docs](docs/repo-baseline.md).
+- **`repo-baseline`** — install PR workflow baseline (branch protection, CI, traceability). See [repo-baseline docs](docs/repo-baseline/).
 - **`zip-project`** — create a share-friendly zip of a project (excludes common caches).
 
 ---

@@ -1,4 +1,4 @@
-# Project Planning & Traceability
+# PR Workflow Guide
 
 This project uses **repo-baseline** to enforce disciplined PR workflows.
 

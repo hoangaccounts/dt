@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+msg_file="${1:-}"
+if [[ -z "$msg_file" ]] || [[ ! -f "$msg_file" ]]; then
+  echo "Error: commit-msg hook requires a commit message file path" >&2
+  exit 1
+fi
+
+subject="$(sed -n '1p' "$msg_file")"
+
+if printf '%s\n' "$subject" | grep -qE '^\[DT-[0-9]+\][[:space:]]+.+$'; then
+  exit 0
+fi
+
+echo "✗ Commit subject must start with [DT-<number>] " >&2
+echo "  Example: [DT-123] Add user authentication" >&2
+echo "  Current: $subject" >&2
+exit 1

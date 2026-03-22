@@ -1,3 +1,9 @@
+---
+layout: default
+title: repo-baseline README
+permalink: /docs/repo-baseline/
+---
+
 # repo-baseline README
 
 ## Purpose
@@ -42,7 +48,7 @@ dt rb setup ...
 4. `.github/PULL_REQUEST_TEMPLATE.md`
 5. `.github/ISSUE_TEMPLATE/task.yml`
 6. `.githooks/commit-msg`
-7. `docs/project-planning-traceability.md`
+7. `docs/pr-workflow-guide.md`
 
 It also configures local git hooks:
 - If `core.hooksPath` is not set, it sets `core.hooksPath=.githooks`

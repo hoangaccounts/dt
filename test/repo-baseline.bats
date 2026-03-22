@@ -196,7 +196,7 @@ add_github_remote() {
   [[ "$output" == *"test.sh"* ]]
   [[ "$output" == *".githooks/commit-msg"* ]]
   [[ "$output" == *"PULL_REQUEST_TEMPLATE"* ]]
-  [[ "$output" == *"project-planning"* ]]
+  [[ "$output" == *"pr-workflow-guide"* ]]
   
   # Files should NOT exist (dry-run)
   [ ! -f "$work/.github/workflows/ci.yml" ]
@@ -226,7 +226,7 @@ add_github_remote() {
   [ -f "$work/.githooks/commit-msg" ]
   [ -x "$work/.githooks/commit-msg" ]
   [ -f "$work/.github/PULL_REQUEST_TEMPLATE.md" ]
-  [ -f "$work/docs/project-planning-traceability.md" ]
+  [ -f "$work/docs/pr-workflow-guide.md" ]
 
   run git -C "$work" config --local --get core.hooksPath
   [ "$status" -eq 0 ]
