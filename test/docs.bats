@@ -12,8 +12,10 @@ create_project_dir() {
 @test "docs help paths print correctly" {
   run "$(dt_bin)" docs
   [ "$status" -eq 0 ]
-  [[ "$output" == *"SUMMARY: Install the standard docs pack into a target project."* ]]
+  [[ "$output" == docs* ]]
+  [[ "$output" == *$'\nUsage:'* ]]
   [[ "$output" == *"dt docs init [--dest PATH] [--project-name NAME] [--dry-run] [--force] [--yes]"* ]]
+  [[ "$output" != *"### END HELP"* ]]
 
   run "$(dt_bin)" help docs
   [ "$status" -eq 0 ]
