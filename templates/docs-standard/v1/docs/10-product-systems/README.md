@@ -1,25 +1,14 @@
 # 10-product-systems
 
-Put one spec here per real bounded product or domain capability.
+Put canonical bounded system specs here.
 
 ## What belongs here
 
-- user-facing or domain-facing system specs
-- system contracts
-- system states and flows
-- system-level responsibilities and non-goals
+- promoted system specs from `05-working/product-systems/`
+- enduring system truth that should remain stable across implementation passes
 
 ## What does not belong here
 
-- reusable library/domain cores that belong in `20-libraries`
-- temporary implementation plans
-- broad product vision
-- cross-cutting ADRs
-
-## Split rule
-
-Create a separate system spec when the capability has a distinct purpose, owner, lifecycle, or boundary.
-
-## Merge rule
-
-Merge docs when one file only paraphrases another, or when changes always happen together and the boundaries are not real.
+- delivery-pass checklists
+- non-canonical drafts
+- cross-cutting decisions that belong in `20-decisions/`
