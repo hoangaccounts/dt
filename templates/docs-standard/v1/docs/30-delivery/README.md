@@ -1,22 +1,18 @@
 # 30-delivery
 
-Put execution-oriented documents here.
+Put canonical implementation and rollout packages here.
 
 ## What belongs here
 
-- implementation plans
-- rollout plans
-- QA plans
-- instrumentation plans
-- migration plans
-- release readiness checklists
-- operational runbooks
+- promoted delivery specs from `05-working/delivery/`
+- exact implementation-pass plans
+- rollout, migration, validation, and execution checklists
 
 ## What does not belong here
 
-- stable product truth
-- permanent architectural rules that belong in specs or ADRs
+- enduring product or system truth
+- non-canonical drafts
 
 ## Lifecycle rule
 
-Delivery docs are temporary by default. Archive them after execution, or rewrite their lasting rules into a stable spec if they become normative.
+Delivery docs are temporary by default. Archive or supersede them when the pass is complete or no longer operationally useful.

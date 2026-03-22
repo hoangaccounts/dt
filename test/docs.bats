@@ -9,40 +9,123 @@ create_project_dir() {
   printf '%s\n' "${root_dir}/alpha-launchpad"
 }
 
+write_repo_baseline_marker() {
+  local project_dir="$1"
+  local project_key="$2"
+
+  mkdir -p "${project_dir}/.github/workflows"
+  cat >"${project_dir}/.github/workflows/traceability.yml" <<EOF
+name: traceability
+jobs:
+  check:
+    steps:
+      - run: echo "[${project_key}-123] Example commit subject"
+EOF
+}
+
+assert_draft_first_tree() {
+  local project_dir="$1"
+  local project_prefix="$2"
+
+  [ -f "${project_dir}/AGENT.md" ]
+  [ -f "${project_dir}/docs/README.md" ]
+  [ -f "${project_dir}/docs/00-foundation/README.md" ]
+  [ -f "${project_dir}/docs/05-working/README.md" ]
+  [ -f "${project_dir}/docs/05-working/foundation/README.md" ]
+  [ -f "${project_dir}/docs/05-working/product-systems/README.md" ]
+  [ -f "${project_dir}/docs/05-working/decisions/README.md" ]
+  [ -f "${project_dir}/docs/05-working/delivery/README.md" ]
+  [ -f "${project_dir}/docs/05-working/libraries/README.md" ]
+  [ -f "${project_dir}/docs/05-working/research/README.md" ]
+  [ -f "${project_dir}/docs/10-product-systems/README.md" ]
+  [ -f "${project_dir}/docs/20-decisions/README.md" ]
+  [ -f "${project_dir}/docs/30-delivery/README.md" ]
+  [ -f "${project_dir}/docs/40-libraries/README.md" ]
+  [ -f "${project_dir}/docs/50-research/README.md" ]
+  [ -f "${project_dir}/docs/90-archive/README.md" ]
+
+  [ -f "${project_dir}/docs/05-working/foundation/draft-${project_prefix}-foundation-product-vision-spec.md" ]
+  [ -f "${project_dir}/docs/05-working/foundation/draft-${project_prefix}-foundation-system-architecture-spec.md" ]
+  [ -f "${project_dir}/docs/05-working/product-systems/draft-${project_prefix}-system-example-spec.md" ]
+  [ -f "${project_dir}/docs/05-working/delivery/draft-${project_prefix}-delivery-example-v1-implementation-spec.md" ]
+  [ -f "${project_dir}/docs/05-working/research/draft-${project_prefix}-research-open-questions-spec.md" ]
+
+  [ ! -e "${project_dir}/docs/00-foundation/product-vision-spec.md" ]
+  [ ! -e "${project_dir}/docs/10-product-systems/example-system-spec.md" ]
+  [ ! -e "${project_dir}/docs/20-libraries" ]
+  [ ! -e "${project_dir}/docs/40-decisions" ]
+}
+
 @test "docs help paths print correctly" {
   run "$(dt_bin)" docs
   [ "$status" -eq 0 ]
-  [[ "$output" == docs* ]]
-  [[ "$output" == *$'\nUsage:'* ]]
-  [[ "$output" == *"dt docs init [--dest PATH] [--project-name NAME] [--dry-run] [--force] [--yes]"* ]]
+  [[ "$output" == *"dt docs init [--dest PATH] [--project-name NAME] [--project-prefix PREFIX] [--dry-run] [--force] [--yes]"* ]]
+  [[ "$output" == *"draft-first"* ]]
+  [[ "$output" == *"AGENT.md"* ]]
   [[ "$output" != *"### END HELP"* ]]
 
   run "$(dt_bin)" help docs
   [ "$status" -eq 0 ]
-  [[ "$output" == docs* ]]
-  [[ "$output" == *$'\nUsage:'* ]]
   [[ "$output" == *"dt docs init"* ]]
+  [[ "$output" == *"--project-prefix <prefix>"* ]]
   [[ "$output" != *"### END HELP"* ]]
 }
 
-@test "docs init installs the standard pack into the current directory" {
+@test "docs init installs the draft-first standard pack into the current directory" {
   local project_dir
   project_dir="$(create_project_dir)"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --yes"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-prefix alp --yes 2>&1"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"create: docs/README.md"* ]]
-  [[ "$output" == *"Result:"* ]]
+  [[ "$output" == *"create: AGENT.md"* ]]
+  [[ "$output" == *"create: docs/05-working/foundation/draft-alp-foundation-product-vision-spec.md"* ]]
+  [[ "$output" == *"Project prefix: alp"* ]]
+  [[ "$output" == *"AGENT.md: created"* ]]
 
-  [ -f "${project_dir}/docs/README.md" ]
-  [ -f "${project_dir}/docs/00-foundation/product-vision-spec.md" ]
-  [ -f "${project_dir}/docs/10-product-systems/example-system-spec.md" ]
-  [ -f "${project_dir}/docs/20-libraries/example-library-spec.md" ]
-  [ -f "${project_dir}/docs/30-delivery/implementation-plan.md" ]
-  [ -f "${project_dir}/docs/40-decisions/adr-001-use-decision-layer-doc-architecture.md" ]
-  [ -f "${project_dir}/docs/90-archive/README.md" ]
+  assert_draft_first_tree "${project_dir}" "alp"
 
-  run grep -F "# Alpha Launchpad — Product Vision Spec" "${project_dir}/docs/00-foundation/product-vision-spec.md"
+  run grep -F "# Draft — Alpha Launchpad Product Vision Spec" "${project_dir}/docs/05-working/foundation/draft-alp-foundation-product-vision-spec.md"
+  [ "$status" -eq 0 ]
+
+  run grep -F "docs/05-working/**" "${project_dir}/AGENT.md"
+  [ "$status" -eq 0 ]
+
+  run grep -F "Every file under \`docs/05-working/**\` must begin with \`draft-\`." "${project_dir}/AGENT.md"
+  [ "$status" -eq 0 ]
+
+  rm -rf "$(dirname "${project_dir}")"
+}
+
+@test "docs init infers project prefix from repo-baseline and confirms with the user" {
+  local project_dir
+  project_dir="$(create_project_dir)"
+  write_repo_baseline_marker "${project_dir}" "SHOP"
+
+  run bash -c "cd '${project_dir}' && printf 'y\ny\n' | '$(dt_bin)' docs init 2>&1"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Detected project prefix candidate from repo-baseline: shop"* ]]
+  [[ "$output" == *"Use detected project prefix? [y/N]:"* ]]
+  [[ "$output" == *"Project prefix: shop (confirmed from repo-baseline)"* ]]
+
+  [ -f "${project_dir}/docs/05-working/foundation/draft-shop-foundation-product-vision-spec.md" ]
+  [ ! -f "${project_dir}/docs/05-working/foundation/draft-{{PROJECT_PREFIX}}-foundation-product-vision-spec.md" ]
+
+  rm -rf "$(dirname "${project_dir}")"
+}
+
+@test "docs init allows manual deferred project-prefix installation" {
+  local project_dir
+  project_dir="$(create_project_dir)"
+  local deferred_file="${project_dir}/docs/05-working/foundation/draft-{{PROJECT_PREFIX}}-foundation-product-vision-spec.md"
+
+  run bash -c "cd '${project_dir}' && printf '\ny\n' | '$(dt_bin)' docs init 2>&1"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Project prefix (lowercase letters, numbers, hyphens; leave blank to defer):"* ]]
+  [[ "$output" == *"Project prefix: deferred ({{PROJECT_PREFIX}} retained)"* ]]
+
+  [ -f "${deferred_file}" ]
+
+  run grep -F "{{PROJECT_PREFIX}}" "${deferred_file}"
   [ "$status" -eq 0 ]
 
   rm -rf "$(dirname "${project_dir}")"
@@ -52,14 +135,14 @@ create_project_dir() {
   local project_dir
   project_dir="$(create_project_dir)"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --yes >/dev/null"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-prefix alp --yes >/dev/null 2>&1"
   [ "$status" -eq 0 ]
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-prefix alp 2>&1"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skip: docs/README.md"* ]]
+  [[ "$output" == *"skip: AGENT.md"* ]]
+  [[ "$output" == *"skip: docs/05-working/foundation/draft-alp-foundation-product-vision-spec.md"* ]]
   [[ "$output" == *"No writes were needed."* ]]
-  [[ "$output" == *"skipped: 15"* ]]
 
   rm -rf "$(dirname "${project_dir}")"
 }
@@ -68,11 +151,13 @@ create_project_dir() {
   local project_dir
   project_dir="$(create_project_dir)"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --dry-run"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --dry-run 2>&1"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"would create: docs/README.md"* ]]
+  [[ "$output" == *"would create: AGENT.md"* ]]
+  [[ "$output" == *"Project prefix: deferred ({{PROJECT_PREFIX}} retained)"* ]]
   [[ "$output" == *"Dry run only. No files were written."* ]]
 
+  [ ! -e "${project_dir}/AGENT.md" ]
   [ ! -e "${project_dir}/docs" ]
 
   rm -rf "$(dirname "${project_dir}")"
@@ -82,7 +167,7 @@ create_project_dir() {
   local project_dir
   project_dir="$(create_project_dir)"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --bogus"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --bogus 2>&1"
   [ "$status" -eq 2 ]
   [[ "$output" == *"Unknown argument: --bogus"* ]]
   [[ "$output" == *"Usage: dt docs init"* ]]
@@ -94,13 +179,17 @@ create_project_dir() {
   local project_dir
   project_dir="$(create_project_dir)"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --dest"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --dest 2>&1"
   [ "$status" -eq 2 ]
   [[ "$output" == *"Missing value for --dest"* ]]
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-name"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-name 2>&1"
   [ "$status" -eq 2 ]
   [[ "$output" == *"Missing value for --project-name"* ]]
+
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-prefix 2>&1"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Missing value for --project-prefix"* ]]
 
   rm -rf "$(dirname "${project_dir}")"
 }
@@ -108,19 +197,20 @@ create_project_dir() {
 @test "docs init force overwrites template-owned collisions" {
   local project_dir
   project_dir="$(create_project_dir)"
-  local vision_file="${project_dir}/docs/00-foundation/product-vision-spec.md"
+  local vision_file="${project_dir}/docs/05-working/foundation/draft-alp-foundation-product-vision-spec.md"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --yes >/dev/null"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-prefix alp --yes >/dev/null 2>&1"
   [ "$status" -eq 0 ]
 
   printf '%s\n' 'custom change' >"${vision_file}"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --force --yes"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-prefix alp --force --yes 2>&1"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"overwrite: docs/00-foundation/product-vision-spec.md"* ]]
-  [[ "$output" == *"overwritten: 15"* ]]
+  [[ "$output" == *"overwrite: AGENT.md"* ]]
+  [[ "$output" == *"overwrite: docs/05-working/foundation/draft-alp-foundation-product-vision-spec.md"* ]]
+  [[ "$output" == *"overwritten:"* ]]
 
-  run grep -F "# Alpha Launchpad — Product Vision Spec" "${vision_file}"
+  run grep -F "# Draft — Alpha Launchpad Product Vision Spec" "${vision_file}"
   [ "$status" -eq 0 ]
 
   rm -rf "$(dirname "${project_dir}")"
@@ -133,13 +223,13 @@ create_project_dir() {
 
   mkdir -p "${project_dir}"
 
-  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-name 'Nova Console' --yes"
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-name 'Nova Console' --project-prefix nc --yes 2>&1"
   [ "$status" -eq 0 ]
 
-  run grep -F "# Nova Console — Product Vision Spec" "${project_dir}/docs/00-foundation/product-vision-spec.md"
+  run grep -F "# Draft — Nova Console Product Vision Spec" "${project_dir}/docs/05-working/foundation/draft-nc-foundation-product-vision-spec.md"
   [ "$status" -eq 0 ]
 
-  run grep -F "# Nova Console — Implementation Plan" "${project_dir}/docs/30-delivery/implementation-plan.md"
+  run grep -F "# Draft — Nova Console System Architecture Spec" "${project_dir}/docs/05-working/foundation/draft-nc-foundation-system-architecture-spec.md"
   [ "$status" -eq 0 ]
 
   rm -rf "${root_dir}"
@@ -150,12 +240,12 @@ create_project_dir() {
   root_dir="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-docs")"
   local destination_dir="${root_dir}/Project Docs"
 
-  run bash -c "cd '${root_dir}' && '$(dt_bin)' docs init --dest '${destination_dir}' --yes"
+  run bash -c "cd '${root_dir}' && '$(dt_bin)' docs init --dest '${destination_dir}' --project-prefix pd --yes 2>&1"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Target: ${destination_dir}"* ]]
 
-  [ -f "${destination_dir}/docs/README.md" ]
-  [ -f "${destination_dir}/docs/00-foundation/system-architecture-spec.md" ]
+  [ -f "${destination_dir}/AGENT.md" ]
+  [ -f "${destination_dir}/docs/05-working/foundation/draft-pd-foundation-system-architecture-spec.md" ]
 
   rm -rf "${root_dir}"
 }

@@ -1,31 +1,19 @@
 # 00-foundation
 
-Put the product's identity and map here.
+Put canonical project identity and system-map documents here.
 
 ## What belongs here
 
-- product vision
-- glossary
-- principles
-- information architecture
-- system architecture
-- other product-wide foundation specs
+- promoted product vision specs
+- promoted system architecture specs
+- other stable foundation-level truth
 
 ## What does not belong here
 
-- implementation plans
-- sprint notes
-- release checklists
-- single-system details that belong in system specs
-- reusable library internals that belong in library specs
+- working drafts
+- implementation-pass plans
+- bounded system specs that belong in `10-product-systems/`
 
-## Canonical read order
+## Promotion rule
 
-1. `product-vision-spec.md`
-2. `glossary.md` when present
-3. `information-architecture-spec.md` when applicable
-4. `system-architecture-spec.md`
-
-## Special rule
-
-`system-architecture-spec.md` should be the canonical retrieval spine linking to all system and library specs.
+Draft foundation docs begin in `docs/05-working/foundation/`. Move them here only when they are stable enough to be default authority.
