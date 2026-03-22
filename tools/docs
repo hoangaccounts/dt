@@ -1,0 +1,460 @@
+#!/usr/bin/env bash
+# VERSION: 0.0.1
+# SUMMARY: Install the standard docs pack into a target project.
+# TAGS: project, files
+# SYNOPSIS: dt docs
+#   dt docs init [--dest PATH] [--project-name NAME] [--dry-run] [--force] [--yes]
+# SAFETY: confirm
+# DESCRIPTION: Installs the committed docs standard pack from templates/docs-standard/v1
+#   into the selected destination directory. Existing files are skipped by default;
+#   --force overwrites template-owned file collisions. The default destination is the
+#   current directory.
+# OPTIONS:
+#   --dest <path>           Install into this directory instead of the current directory
+#   --project-name <name>   Replace {{PROJECT_NAME}} placeholders with this value
+#   --force                 Overwrite template-owned file collisions deterministically
+#   --dry-run               Print the install plan without writing files or prompting
+#   --yes                   Skip the confirmation prompt for real writes
+#   -h, --help, help        Show this help
+# EXAMPLES:
+#   dt docs
+#   dt docs init
+#   dt docs init --dry-run
+#   dt docs init --dest ./sandbox --project-name "Sandbox" --yes
+#   dt docs init --force --yes
+# OUTPUT: Writes a docs/ tree into the target project and prints created/skipped/overwritten summaries.
+# DEPS: find, mkdir, mv, sed, sort
+# MISC: Token replacement is intentionally narrow and only supports {{PROJECT_NAME}}.
+### END HELP
+set -euo pipefail
+
+readonly TOOL_ID="docs"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly TEMPLATE_VERSION="docs-standard/v1"
+readonly TEMPLATE_ROOT="${REPO_ROOT}/templates/${TEMPLATE_VERSION}"
+readonly TEMPLATE_DOCS_DIR="${TEMPLATE_ROOT}/docs"
+
+main() {
+  local subcommand="${1:-}"
+  shift || true
+
+  case "${subcommand}" in
+    ""|-h|--help|help)
+      print_help
+      ;;
+    init)
+      cmd_init "$@"
+      ;;
+    install|uninstall|status)
+      echo "Not supported: dt ${TOOL_ID} ${subcommand}" >&2
+      print_usage >&2
+      exit 2
+      ;;
+    *)
+      echo "Unknown subcommand: ${subcommand}" >&2
+      print_usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+print_help() {
+  awk '
+    NR==1 && $0 ~ /^#!/ { next }
+    $0 ~ /^### END HELP$/ { exit }
+    $0 ~ /^# / { sub(/^# /, "", $0); print; next }
+    $0 ~ /^#$/ { print ""; next }
+  ' "$0"
+}
+
+print_usage() {
+  echo "Usage: dt docs init [--dest PATH] [--project-name NAME] [--dry-run] [--force] [--yes]"
+  echo "Run: dt help docs"
+}
+
+fail_usage() {
+  echo "${1}" >&2
+  print_usage >&2
+  exit 2
+}
+
+require_template_pack() {
+  if [[ ! -d "${TEMPLATE_DOCS_DIR}" ]]; then
+    echo "Missing template pack: ${TEMPLATE_DOCS_DIR}" >&2
+    exit 2
+  fi
+}
+
+require_flag_value() {
+  local flag_name="${1}"
+  local flag_value="${2:-}"
+
+  if [[ -z "${flag_value}" || "${flag_value}" == -* ]]; then
+    fail_usage "Missing value for ${flag_name}"
+  fi
+}
+
+make_temp_file() {
+  mktemp 2>/dev/null || mktemp -t "dt-docs-plan"
+}
+
+resolve_target_path() {
+  local input_path="${1}"
+
+  if [[ "${input_path}" == "." ]]; then
+    pwd -P
+    return 0
+  fi
+
+  if [[ "${input_path}" == /* ]]; then
+    if [[ -d "${input_path}" ]]; then
+      (
+        cd "${input_path}" &&
+          pwd -P
+      )
+    else
+      printf '%s\n' "${input_path}"
+    fi
+    return 0
+  fi
+
+  if [[ -d "${input_path}" ]]; then
+    (
+      cd "${input_path}" &&
+        pwd -P
+    )
+  else
+    printf '%s/%s\n' "$(pwd -P)" "${input_path}"
+  fi
+}
+
+derive_project_name() {
+  local target_path="${1}"
+  local base_name=""
+  local normalized_name=""
+
+  base_name="$(basename "${target_path}")"
+  if [[ -z "${base_name}" || "${base_name}" == "/" || "${base_name}" == "." ]]; then
+    base_name="project"
+  fi
+
+  normalized_name="$(printf '%s\n' "${base_name}" | tr '_-' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
+  if [[ -z "${normalized_name}" ]]; then
+    normalized_name="Project"
+  fi
+
+  printf '%s\n' "${normalized_name}" | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        first = substr($i, 1, 1)
+        rest = substr($i, 2)
+        $i = toupper(first) tolower(rest)
+      }
+      print
+    }
+  '
+}
+
+escape_sed_replacement() {
+  local raw_value="${1}"
+
+  raw_value="${raw_value//\\/\\\\}"
+  raw_value="${raw_value//&/\\&}"
+  raw_value="${raw_value//|/\\|}"
+
+  printf '%s' "${raw_value}"
+}
+
+display_relative_path() {
+  local target_root="${1}"
+  local full_path="${2}"
+  local prefix="${target_root%/}/"
+
+  if [[ "${full_path}" == "${target_root}" ]]; then
+    printf '.\n'
+    return 0
+  fi
+
+  if [[ "${full_path}" == "${prefix}"* ]]; then
+    printf '%s\n' "${full_path#"${prefix}"}"
+    return 0
+  fi
+
+  printf '%s\n' "${full_path}"
+}
+
+count_plan_action() {
+  local plan_file="${1}"
+  local action_name="${2}"
+
+  awk -F '\t' -v action="${action_name}" '
+    $1 == action { count++ }
+    END { print count + 0 }
+  ' "${plan_file}"
+}
+
+build_plan() {
+  local target_root="${1}"
+  local force_mode="${2}"
+  local plan_file="${3}"
+  local source_path=""
+  local relative_path=""
+  local destination_path=""
+  local action=""
+
+  : >"${plan_file}"
+
+  while IFS= read -r source_path; do
+    relative_path="${source_path#"${TEMPLATE_ROOT}/"}"
+    if [[ "${target_root}" == "/" ]]; then
+      destination_path="/${relative_path}"
+    else
+      destination_path="${target_root%/}/${relative_path}"
+    fi
+
+    if [[ -d "${destination_path}" ]]; then
+      action="skip"
+    elif [[ -e "${destination_path}" || -L "${destination_path}" ]]; then
+      if [[ "${force_mode}" == "true" ]]; then
+        action="overwrite"
+      else
+        action="skip"
+      fi
+    else
+      action="create"
+    fi
+
+    printf '%s\t%s\t%s\n' "${action}" "${source_path}" "${destination_path}"
+  done >"${plan_file}" < <(find "${TEMPLATE_DOCS_DIR}" -type f | LC_ALL=C sort)
+}
+
+print_plan() {
+  local plan_file="${1}"
+  local target_root="${2}"
+  local project_name="${3}"
+  local dry_run="${4}"
+  local create_count=""
+  local skip_count=""
+  local overwrite_count=""
+  local action=""
+  local source_path=""
+  local destination_path=""
+  local label=""
+
+  create_count="$(count_plan_action "${plan_file}" "create")"
+  skip_count="$(count_plan_action "${plan_file}" "skip")"
+  overwrite_count="$(count_plan_action "${plan_file}" "overwrite")"
+
+  echo "Target: ${target_root}"
+  echo "Template: ${TEMPLATE_VERSION}"
+  echo "Project name: ${project_name}"
+  if [[ "${dry_run}" == "true" ]]; then
+    echo "Mode: dry-run"
+  fi
+  echo ""
+  echo "Plan:"
+
+  while IFS=$'\t' read -r action source_path destination_path; do
+    case "${action}" in
+      create)
+        label="create"
+        ;;
+      skip)
+        label="skip"
+        ;;
+      overwrite)
+        label="overwrite"
+        ;;
+      *)
+        label="${action}"
+        ;;
+    esac
+
+    if [[ "${dry_run}" == "true" ]]; then
+      label="would ${label}"
+    fi
+
+    echo "  ${label}: $(display_relative_path "${target_root}" "${destination_path}")"
+  done <"${plan_file}"
+
+  echo ""
+  echo "Summary:"
+  echo "  create: ${create_count}"
+  echo "  skip: ${skip_count}"
+  echo "  overwrite: ${overwrite_count}"
+}
+
+print_result_summary() {
+  local target_root="${1}"
+  local create_count="${2}"
+  local skip_count="${3}"
+  local overwrite_count="${4}"
+
+  echo "Result:"
+  echo "  created: ${create_count}"
+  echo "  skipped: ${skip_count}"
+  echo "  overwritten: ${overwrite_count}"
+  echo "  target: ${target_root}"
+  echo "  template: ${TEMPLATE_VERSION}"
+}
+
+confirm_write() {
+  local answer=""
+
+  printf "Proceed with docs install? [y/N] "
+  IFS= read -r answer || true
+  case "${answer}" in
+    y|Y|yes|YES)
+      return 0
+      ;;
+    *)
+      echo "Canceled."
+      return 1
+      ;;
+  esac
+}
+
+write_template_file() {
+  local source_path="${1}"
+  local destination_path="${2}"
+  local project_name="${3}"
+  local escaped_project_name=""
+  local temp_path=""
+
+  escaped_project_name="$(escape_sed_replacement "${project_name}")"
+  temp_path="${destination_path}.dt-docs-tmp.$$"
+
+  mkdir -p "$(dirname "${destination_path}")"
+
+  if ! sed "s|{{PROJECT_NAME}}|${escaped_project_name}|g" "${source_path}" >"${temp_path}"; then
+    rm -f "${temp_path}"
+    return 1
+  fi
+
+  mv "${temp_path}" "${destination_path}"
+}
+
+execute_plan() {
+  local plan_file="${1}"
+  local project_name="${2}"
+  local action=""
+  local source_path=""
+  local destination_path=""
+
+  while IFS=$'\t' read -r action source_path destination_path; do
+    case "${action}" in
+      create|overwrite)
+        write_template_file "${source_path}" "${destination_path}" "${project_name}"
+        ;;
+      skip)
+        ;;
+      *)
+        echo "Unknown plan action: ${action}" >&2
+        exit 2
+        ;;
+    esac
+  done <"${plan_file}"
+}
+
+cmd_init() {
+  local destination="."
+  local project_name=""
+  local dry_run="false"
+  local force_mode="false"
+  local yes_mode="false"
+  local target_root=""
+  local plan_file=""
+  local create_count=""
+  local skip_count=""
+  local overwrite_count=""
+  local write_count=0
+
+  while [[ "${#}" -gt 0 ]]; do
+    case "${1}" in
+      --dest)
+        require_flag_value "${1}" "${2:-}"
+        destination="${2}"
+        shift 2
+        ;;
+      --project-name)
+        require_flag_value "${1}" "${2:-}"
+        project_name="${2}"
+        shift 2
+        ;;
+      --force)
+        force_mode="true"
+        shift
+        ;;
+      --dry-run)
+        dry_run="true"
+        shift
+        ;;
+      --yes)
+        yes_mode="true"
+        shift
+        ;;
+      -h|--help|help)
+        print_help
+        return 0
+        ;;
+      *)
+        fail_usage "Unknown argument: ${1}"
+        ;;
+    esac
+  done
+
+  require_template_pack
+
+  target_root="$(resolve_target_path "${destination}")"
+  if [[ -e "${target_root}" && ! -d "${target_root}" ]]; then
+    echo "Destination is not a directory: ${target_root}" >&2
+    exit 2
+  fi
+
+  if [[ -z "${project_name}" ]]; then
+    project_name="$(derive_project_name "${target_root}")"
+  fi
+
+  plan_file="$(make_temp_file)"
+  trap "rm -f '${plan_file}'" EXIT
+
+  build_plan "${target_root}" "${force_mode}" "${plan_file}"
+
+  if [[ ! -s "${plan_file}" ]]; then
+    echo "Template pack is empty: ${TEMPLATE_DOCS_DIR}" >&2
+    exit 2
+  fi
+
+  create_count="$(count_plan_action "${plan_file}" "create")"
+  skip_count="$(count_plan_action "${plan_file}" "skip")"
+  overwrite_count="$(count_plan_action "${plan_file}" "overwrite")"
+  write_count=$((create_count + overwrite_count))
+
+  print_plan "${plan_file}" "${target_root}" "${project_name}" "${dry_run}"
+
+  if [[ "${dry_run}" == "true" ]]; then
+    echo ""
+    echo "Dry run only. No files were written."
+    return 0
+  fi
+
+  if [[ "${write_count}" -gt 0 && "${yes_mode}" != "true" ]]; then
+    echo ""
+    if ! confirm_write; then
+      return 0
+    fi
+  fi
+
+  if [[ "${write_count}" -gt 0 ]]; then
+    execute_plan "${plan_file}" "${project_name}"
+  else
+    echo ""
+    echo "No writes were needed."
+  fi
+
+  echo ""
+  print_result_summary "${target_root}" "${create_count}" "${skip_count}" "${overwrite_count}"
+}
+
+main "$@"

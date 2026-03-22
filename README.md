@@ -42,6 +42,7 @@ chmod +x dt bootstrap tools/*
 ## Included tools
 
 - **`ai-context`** — generate structured AI assistant context from your standards, workflows, and projects.
+- **`docs`** — install the standard project docs pack into a target directory.
 - **`git-aliases`** — print and optionally install a safe git alias set.
 - **`jump-dir`** — bookmark and jump to frequently used directories.
 - **`prompt`** — install a reversible, git-aware shell prompt.
@@ -95,6 +96,18 @@ Add experimental context docs to:
 ```
 
 These are automatically loaded during context generation and can be promoted later.
+
+---
+
+### docs
+
+Install the standard docs pack into the current project or another destination.
+
+```bash
+dt docs init
+dt docs init --dry-run
+dt docs init --dest ./sandbox --project-name "Sandbox" --yes
+```
 
 ---
 
