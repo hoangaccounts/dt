@@ -2,6 +2,26 @@
 
 load "support/test_helpers.bash"
 
+DT_DOCS_TEMPLATE_METADATA=""
+DT_DOCS_TEMPLATE_BACKUP=""
+DT_DOCS_PROJECT_ROOT=""
+
+cleanup_docs_template_metadata() {
+  if [[ -n "${DT_DOCS_TEMPLATE_BACKUP}" && -f "${DT_DOCS_TEMPLATE_BACKUP}" ]]; then
+    mv "${DT_DOCS_TEMPLATE_BACKUP}" "${DT_DOCS_TEMPLATE_METADATA}"
+  elif [[ -n "${DT_DOCS_TEMPLATE_METADATA}" ]]; then
+    rm -f "${DT_DOCS_TEMPLATE_METADATA}"
+  fi
+
+  if [[ -n "${DT_DOCS_PROJECT_ROOT}" && -d "${DT_DOCS_PROJECT_ROOT}" ]]; then
+    rm -rf "$(dirname "${DT_DOCS_PROJECT_ROOT}")"
+  fi
+
+  DT_DOCS_TEMPLATE_METADATA=""
+  DT_DOCS_TEMPLATE_BACKUP=""
+  DT_DOCS_PROJECT_ROOT=""
+}
+
 create_project_dir() {
   local root_dir
   root_dir="$(mktemp -d 2>/dev/null || mktemp -d -t "dt-docs")"
@@ -79,10 +99,13 @@ assert_draft_first_tree() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"create: AGENT.md"* ]]
   [[ "$output" == *"create: docs/05-working/foundation/draft-alp-foundation-product-vision-spec.md"* ]]
+  [[ "$output" != *".DS_Store"* ]]
   [[ "$output" == *"Project prefix: alp"* ]]
   [[ "$output" == *"AGENT.md: created"* ]]
 
   assert_draft_first_tree "${project_dir}" "alp"
+  [ ! -e "${project_dir}/.DS_Store" ]
+  [ ! -e "${project_dir}/docs/.DS_Store" ]
 
   run grep -F "# Draft — Alpha Launchpad Product Vision Spec" "${project_dir}/docs/05-working/foundation/draft-alp-foundation-product-vision-spec.md"
   [ "$status" -eq 0 ]
@@ -94,6 +117,28 @@ assert_draft_first_tree() {
   [ "$status" -eq 0 ]
 
   rm -rf "$(dirname "${project_dir}")"
+}
+
+@test "docs init ignores macOS metadata files in the template tree" {
+  local project_dir
+  project_dir="$(create_project_dir)"
+
+  DT_DOCS_PROJECT_ROOT="${project_dir}"
+  DT_DOCS_TEMPLATE_METADATA="$(repo_root)/templates/docs-standard/v1/docs/.DS_Store"
+  DT_DOCS_TEMPLATE_BACKUP=""
+  trap cleanup_docs_template_metadata EXIT
+
+  if [[ -f "${DT_DOCS_TEMPLATE_METADATA}" ]]; then
+    DT_DOCS_TEMPLATE_BACKUP="$(mktemp 2>/dev/null || mktemp -t "dt-docs-ds-store")"
+    cp "${DT_DOCS_TEMPLATE_METADATA}" "${DT_DOCS_TEMPLATE_BACKUP}"
+  fi
+
+  printf '\377\376binary-metadata\n' >"${DT_DOCS_TEMPLATE_METADATA}"
+
+  run bash -c "cd '${project_dir}' && '$(dt_bin)' docs init --project-prefix alp --yes 2>&1"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *".DS_Store"* ]]
+  [ ! -e "${project_dir}/docs/.DS_Store" ]
 }
 
 @test "docs init infers project prefix from repo-baseline and confirms with the user" {
