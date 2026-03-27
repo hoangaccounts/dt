@@ -375,7 +375,11 @@ build_plan() {
     fi
 
     printf '%s\t%s\t%s\t%s\n' "${action}" "${source_path}" "${destination_path}" "${rendered_relative_path}"
-  done >"${plan_file}" < <(find "${TEMPLATE_ROOT}" -type f | LC_ALL=C sort)
+  done >"${plan_file}" < <(
+    find "${TEMPLATE_ROOT}" -type f \
+      ! -name '.DS_Store' \
+      ! -name '._*' | LC_ALL=C sort
+  )
 }
 
 print_project_prefix_line() {
@@ -530,7 +534,7 @@ write_template_file() {
 
   mkdir -p "$(dirname "${destination_path}")"
 
-  if ! sed \
+  if ! LC_ALL=C sed \
     -e "s|{{PROJECT_NAME}}|${escaped_project_name}|g" \
     -e "s|{{PROJECT_PREFIX}}|${escaped_project_prefix}|g" \
     "${source_path}" >"${temp_path}"; then
